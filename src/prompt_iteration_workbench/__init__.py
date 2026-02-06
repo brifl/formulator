@@ -8,5 +8,6 @@ __all__ = [
     "llm_client",
     "engine",
     "prompt_templates",
+    "formats",
     "prompt_architect",
 ]

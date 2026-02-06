@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from prompt_iteration_workbench.config import get_config
+from prompt_iteration_workbench.formats import get_format_guidance
 from prompt_iteration_workbench.llm_client import LLMClient, ModelTier
 from prompt_iteration_workbench.models import HISTORY_EVENT_PHASE_STEP, IterationRecord, ProjectState
 from prompt_iteration_workbench.prompt_templates import build_context, render_template
@@ -131,12 +132,24 @@ def _template_for_phase(state: ProjectState, phase_name: str) -> str:
     return template_text
 
 
+def _template_mentions_format(template_text: str, output_format: str) -> bool:
+    normalized_template = template_text.upper()
+    normalized_format = str(output_format or "").strip().upper()
+    if "{{FORMAT}}" in normalized_template or "{{FORMAT_GUIDANCE}}" in normalized_template:
+        return True
+    if normalized_format and normalized_format in normalized_template:
+        return True
+    return False
+
+
 def run_next_step(state: ProjectState, *, tier: ModelTier = "budget") -> ProjectState:
     """Execute one phase step and append the resulting history record."""
     phase_name, iteration_index, phase_step_index = _next_phase_metadata(state)
     template_text = _template_for_phase(state, phase_name)
     context = build_context(state=state, phase_name=phase_name, iteration_index=iteration_index)
     prompt_rendered = render_template(template_text, context)
+    if not _template_mentions_format(template_text, state.output_format):
+        prompt_rendered = f"{get_format_guidance(state.output_format)}\n\n{prompt_rendered}"
 
     client = LLMClient(get_config())
     result = client.generate_text(

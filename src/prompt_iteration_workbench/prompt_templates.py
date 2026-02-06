@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import re
 from typing import Iterable, Mapping
 
+from prompt_iteration_workbench.formats import get_format_guidance
 from prompt_iteration_workbench.models import ProjectState
 
 SUPPORTED_TOKENS: tuple[str, ...] = (
@@ -13,6 +14,7 @@ SUPPORTED_TOKENS: tuple[str, ...] = (
     "REQUIREMENTS",
     "SPECIAL_RESOURCES",
     "FORMAT",
+    "FORMAT_GUIDANCE",
     "PHASE_RULES",
     "CURRENT_OUTPUT",
     "ITERATION_INDEX",
@@ -69,6 +71,7 @@ def build_context(state: ProjectState, phase_name: str, iteration_index: int) ->
             "REQUIREMENTS": str(state.requirements_constraints or ""),
             "SPECIAL_RESOURCES": str(state.special_resources or ""),
             "FORMAT": str(state.output_format or ""),
+            "FORMAT_GUIDANCE": get_format_guidance(str(state.output_format or "Text")),
             "PHASE_RULES": phase_rules,
             "CURRENT_OUTPUT": str(state.current_output or ""),
             "ITERATION_INDEX": int(iteration_index),

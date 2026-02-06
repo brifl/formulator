@@ -7,9 +7,19 @@ from pathlib import Path
 
 from nicegui import ui
 
-from prompt_iteration_workbench.models import IterationRecord, ProjectState
+from prompt_iteration_workbench.models import (
+    HISTORY_EVENT_PROMPT_ARCHITECT,
+    format_history_label,
+    IterationRecord,
+    ProjectState,
+    make_prompt_architect_event,
+)
 from prompt_iteration_workbench.persistence import load_project, save_project
-from prompt_iteration_workbench.prompt_architect import PromptArchitectError, generate_templates
+from prompt_iteration_workbench.prompt_architect import (
+    PromptArchitectError,
+    generate_templates,
+    resolve_prompt_architect_model,
+)
 from prompt_iteration_workbench.prompt_templates import (
     SUPPORTED_TOKENS,
     build_context,
@@ -139,7 +149,12 @@ def build_ui() -> None:
                     return
                 for record in history_records:
                     with ui.card().classes("w-full bg-gray-50"):
-                        ui.label(f"{record.phase_name.title()} phase - step {record.phase_step_index}")
+                        ui.label(format_history_label(record))
+                        if record.event_type == HISTORY_EVENT_PROMPT_ARCHITECT:
+                            if record.model_used:
+                                ui.label(f"Model: {record.model_used}").classes("text-xs text-gray-700")
+                            if record.note_summary.strip():
+                                ui.label(record.note_summary.strip()).classes("text-sm text-gray-700")
                         ui.label(record.created_at).classes("text-xs text-gray-600")
 
         def inject_placeholder_history() -> None:
@@ -350,6 +365,14 @@ def build_ui() -> None:
                     notify_click(f"Generate prompts updated: {', '.join(updated_fields)}")
                 else:
                     ui.notify("Generate prompts made no changes (templates already populated).", type="warning")
+
+                history_records.append(
+                    make_prompt_architect_event(
+                        model_used=resolve_prompt_architect_model(),
+                        note_summary=notes,
+                    )
+                )
+                render_history()
 
                 if notes.strip():
                     ui.notify(f"Prompt Architect notes: {notes[:120]}", type="info")

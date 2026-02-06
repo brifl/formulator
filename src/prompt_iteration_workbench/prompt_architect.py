@@ -8,6 +8,8 @@ from prompt_iteration_workbench.config import get_config
 from prompt_iteration_workbench.llm_client import LLMClient, LLMError
 from prompt_iteration_workbench.models import ProjectState
 
+PROMPT_ARCHITECT_TIER = "premium"
+
 
 class PromptArchitectError(Exception):
     """UI-safe prompt architect failure with normalized message text."""
@@ -38,6 +40,11 @@ def _normalize_template(template_text: str, format_target: str) -> str:
     return cleaned
 
 
+def resolve_prompt_architect_model() -> str:
+    """Resolve the configured model name used for prompt architect generation."""
+    return LLMClient(get_config()).resolve_model(PROMPT_ARCHITECT_TIER)
+
+
 def generate_templates(state: ProjectState) -> tuple[str, str, str]:
     """Generate additive/reductive templates and notes using premium LLM routing."""
     format_target = str(state.output_format or "Markdown")
@@ -66,7 +73,7 @@ def generate_templates(state: ProjectState) -> tuple[str, str, str]:
     client = LLMClient(get_config())
     try:
         result = client.generate_text(
-            tier="premium",
+            tier=PROMPT_ARCHITECT_TIER,
             system_text=system_text,
             user_text=user_text,
             temperature=0.2,

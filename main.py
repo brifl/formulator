@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from nicegui import ui
+from prompt_iteration_workbench.models import IterationRecord
 
 FORMAT_OPTIONS = ["Markdown", "JSON", "Text", "Python"]
 
 
 def build_ui() -> None:
     """Render the stage-2 base shell with project inputs and phase controls."""
+    history_records: list[IterationRecord] = []
+
     ui.label("Prompt Iteration Workbench").classes("text-3xl font-bold")
     ui.label("Adversarial prompt iteration workspace").classes("text-sm text-gray-600")
 
@@ -57,6 +60,44 @@ def build_ui() -> None:
                 label="Current output (editable)",
                 placeholder="Current working draft",
             ).props("autogrow")
+
+    with ui.card().classes("w-full"):
+        ui.label("History").classes("text-xl font-semibold")
+        history_container = ui.column().classes("w-full gap-2")
+
+        def render_history() -> None:
+            history_container.clear()
+            with history_container:
+                if not history_records:
+                    ui.label("No history entries yet. Run iterations to populate this panel.").classes(
+                        "text-sm text-gray-600"
+                    )
+                    return
+                for record in history_records:
+                    with ui.card().classes("w-full bg-gray-50"):
+                        ui.label(f"{record.phase_name.title()} phase - step {record.step_index}")
+                        ui.label(record.timestamp_text).classes("text-xs text-gray-600")
+
+        def inject_placeholder_history() -> None:
+            history_records.clear()
+            history_records.extend(
+                [
+                    IterationRecord(phase_name="additive", step_index=1, timestamp_text="2026-02-06 09:00:00"),
+                    IterationRecord(phase_name="reductive", step_index=2, timestamp_text="2026-02-06 09:01:00"),
+                    IterationRecord(phase_name="additive", step_index=3, timestamp_text="2026-02-06 09:02:00"),
+                ]
+            )
+            render_history()
+
+        def clear_history() -> None:
+            history_records.clear()
+            render_history()
+
+        with ui.row().classes("gap-2"):
+            ui.button("Inject placeholder history", on_click=inject_placeholder_history)
+            ui.button("Clear history", on_click=clear_history)
+
+        render_history()
 
 
 def main() -> None:

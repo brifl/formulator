@@ -9,5 +9,6 @@ __all__ = [
     "engine",
     "prompt_templates",
     "formats",
+    "validators",
     "prompt_architect",
 ]

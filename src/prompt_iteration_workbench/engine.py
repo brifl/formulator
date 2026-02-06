@@ -10,6 +10,7 @@ from prompt_iteration_workbench.formats import get_format_guidance
 from prompt_iteration_workbench.llm_client import LLMClient, ModelTier
 from prompt_iteration_workbench.models import HISTORY_EVENT_PHASE_STEP, IterationRecord, ProjectState
 from prompt_iteration_workbench.prompt_templates import build_context, render_template
+from prompt_iteration_workbench.validators import validate_for_format
 
 PHASE_SEQUENCE = ("additive", "reductive")
 
@@ -159,6 +160,7 @@ def run_next_step(state: ProjectState, *, tier: ModelTier = "budget") -> Project
         temperature=0.2,
         max_output_tokens=1200,
     )
+    validation = validate_for_format(result.text, state.output_format)
 
     next_state = apply_run_options(state)
     next_state.current_output = result.text
@@ -170,6 +172,7 @@ def run_next_step(state: ProjectState, *, tier: ModelTier = "budget") -> Project
             phase_step_index=phase_step_index,
             phase_name=phase_name,
             model_used=result.model_used,
+            note_summary=validation.message if validation.applicable else "",
             prompt_rendered=prompt_rendered,
             output_snapshot=result.text,
         )

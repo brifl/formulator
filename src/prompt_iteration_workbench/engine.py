@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
 
 from prompt_iteration_workbench.config import get_config
 from prompt_iteration_workbench.llm_client import LLMClient, ModelTier
@@ -25,6 +26,15 @@ class RunPlan:
 
     state: ProjectState
     steps: tuple[IterationRecord, ...]
+
+
+@dataclass(frozen=True)
+class RunIterationsResult:
+    """Result for multi-step iteration runs."""
+
+    state: ProjectState
+    steps_completed: int
+    cancelled: bool
 
 
 def normalize_iterations(state: ProjectState, options: RunOptions | None = None) -> int:
@@ -152,6 +162,40 @@ def run_next_step(state: ProjectState, *, tier: ModelTier = "budget") -> Project
         )
     )
     return next_state
+
+
+def run_iterations(
+    state: ProjectState,
+    *,
+    iterations: int | None = None,
+    tier: ModelTier = "budget",
+    should_stop: Callable[[], bool] | None = None,
+) -> RunIterationsResult:
+    """Run up to N iterations (2N phase steps) with cooperative cancellation."""
+    target_iterations = int(state.iterations if iterations is None else iterations)
+    if target_iterations < 1:
+        raise ValueError("iterations must be >= 1")
+
+    steps_target = target_iterations * len(PHASE_SEQUENCE)
+    current_state = apply_run_options(state)
+    current_state.iterations = target_iterations
+    steps_completed = 0
+
+    for _ in range(steps_target):
+        if should_stop is not None and should_stop():
+            return RunIterationsResult(
+                state=current_state,
+                steps_completed=steps_completed,
+                cancelled=True,
+            )
+        current_state = run_next_step(current_state, tier=tier)
+        steps_completed += 1
+
+    return RunIterationsResult(
+        state=current_state,
+        steps_completed=steps_completed,
+        cancelled=False,
+    )
 
 
 def run_iteration() -> None:

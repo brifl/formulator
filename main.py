@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from pathlib import Path
 
 from nicegui import ui
 
+from prompt_iteration_workbench.engine import run_iterations, run_next_step
 from prompt_iteration_workbench.models import (
     HISTORY_EVENT_PROMPT_ARCHITECT,
     format_history_label,
@@ -14,7 +16,6 @@ from prompt_iteration_workbench.models import (
     ProjectState,
     make_prompt_architect_event,
 )
-from prompt_iteration_workbench.engine import run_next_step
 from prompt_iteration_workbench.persistence import load_project, save_project
 from prompt_iteration_workbench.prompt_architect import (
     PromptArchitectError,
@@ -75,6 +76,8 @@ def build_ui() -> None:
     history_records: list[IterationRecord] = []
     last_saved_path: Path | None = None
     is_applying_state = False
+    is_run_active = False
+    stop_requested = False
 
     ui.label("Prompt Iteration Workbench").classes("text-3xl font-bold")
     ui.label("Adversarial prompt iteration workspace").classes("text-sm text-gray-600")
@@ -386,11 +389,11 @@ def build_ui() -> None:
                 set_error(f"Generate prompts failed: {exc}")
                 ui.notify("Generate prompts failed.", type="negative")
 
-        def run_iterations_action() -> None:
-            set_status("Running")
-            notify_click("Run iterations clicked.")
-
         def run_next_step_action() -> None:
+            nonlocal is_run_active
+            if is_run_active:
+                ui.notify("A run is already active.", type="warning")
+                return
             try:
                 set_status("Running")
                 set_error("None")
@@ -404,8 +407,12 @@ def build_ui() -> None:
                 ui.notify("Run next step failed.", type="negative")
 
         def stop_action() -> None:
-            set_status("Stopped")
-            notify_click("Stop clicked.")
+            nonlocal stop_requested
+            if not is_run_active:
+                return
+            stop_requested = True
+            set_status("Stopping")
+            ui.notify("Stop requested. The run will halt after the current step.", type="warning")
 
         def save_project_action() -> None:
             try:
@@ -450,13 +457,60 @@ def build_ui() -> None:
 
         with ui.row().classes("w-full gap-2"):
             ui.button("Generate prompts (if empty)", on_click=generate_prompts_action)
-            ui.button("Run iterations", on_click=run_iterations_action)
+            run_iterations_button = ui.button("Run iterations")
             ui.button("Run next step", on_click=run_next_step_action)
             stop_button = ui.button("Stop", on_click=stop_action)
             stop_button.props("disable")
             ui.button("Save project", on_click=save_project_action)
             ui.button("Load project", on_click=load_project_action)
             ui.button("New project", on_click=new_project_action)
+
+        async def run_iterations_action() -> None:
+            nonlocal is_run_active, stop_requested
+            if is_run_active:
+                ui.notify("A run is already active.", type="warning")
+                return
+
+            try:
+                requested_iterations = int(iterations_input.value or 1)
+                if requested_iterations < 1:
+                    raise ValueError("Iterations must be >= 1.")
+
+                is_run_active = True
+                stop_requested = False
+                stop_button.enable()
+                set_status("Running")
+                set_error("None")
+
+                base_state = state_from_ui()
+                result = await asyncio.to_thread(
+                    lambda: run_iterations(
+                        base_state,
+                        iterations=requested_iterations,
+                        should_stop=lambda: stop_requested,
+                    )
+                )
+                apply_state(result.state)
+
+                if result.cancelled:
+                    set_status("Stopped")
+                    ui.notify(
+                        f"Run stopped after {result.steps_completed} phase steps.",
+                        type="warning",
+                    )
+                else:
+                    set_status("Idle")
+                    notify_click(f"Run iterations completed ({result.steps_completed} phase steps).")
+            except Exception as exc:
+                set_status("Error")
+                set_error(f"Run iterations failed: {exc}")
+                ui.notify("Run iterations failed.", type="negative")
+            finally:
+                is_run_active = False
+                stop_button.disable()
+                stop_requested = False
+
+        run_iterations_button.on_click(run_iterations_action)
 
     for editable in [
         outcome_input,

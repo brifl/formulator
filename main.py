@@ -9,6 +9,7 @@ from nicegui import ui
 
 from prompt_iteration_workbench.models import IterationRecord, ProjectState
 from prompt_iteration_workbench.persistence import load_project, save_project
+from prompt_iteration_workbench.prompt_architect import PromptArchitectError, generate_templates
 from prompt_iteration_workbench.prompt_templates import (
     SUPPORTED_TOKENS,
     build_context,
@@ -18,6 +19,29 @@ from prompt_iteration_workbench.prompt_templates import (
 
 FORMAT_OPTIONS = ["Markdown", "JSON", "Text", "Python"]
 PROJECTS_DIR = Path("projects")
+
+
+def apply_generated_templates(
+    *,
+    existing_additive: str,
+    existing_reductive: str,
+    generated_additive: str,
+    generated_reductive: str,
+    overwrite_existing: bool,
+) -> tuple[str, str, list[str]]:
+    """Merge generated templates into current fields with optional overwrite."""
+    next_additive = existing_additive
+    next_reductive = existing_reductive
+    updated_fields: list[str] = []
+
+    if overwrite_existing or not existing_additive.strip():
+        next_additive = generated_additive
+        updated_fields.append("additive")
+    if overwrite_existing or not existing_reductive.strip():
+        next_reductive = generated_reductive
+        updated_fields.append("reductive")
+
+    return next_additive, next_reductive, updated_fields
 
 
 def build_ui() -> None:
@@ -273,12 +297,41 @@ def build_ui() -> None:
 
     with ui.card().classes("w-full"):
         ui.label("Commands").classes("text-xl font-semibold")
+        overwrite_templates_toggle = ui.switch("Overwrite existing templates", value=False)
 
         def notify_click(message: str) -> None:
             ui.notify(message, type="positive")
 
         def generate_prompts_action() -> None:
-            notify_click("Generate prompts (if empty) clicked.")
+            try:
+                generated_additive, generated_reductive, notes = generate_templates(state_from_ui())
+                next_additive, next_reductive, updated_fields = apply_generated_templates(
+                    existing_additive=str(additive_template_input.value or ""),
+                    existing_reductive=str(reductive_template_input.value or ""),
+                    generated_additive=generated_additive,
+                    generated_reductive=generated_reductive,
+                    overwrite_existing=bool(overwrite_templates_toggle.value),
+                )
+                additive_template_input.value = next_additive
+                reductive_template_input.value = next_reductive
+                set_status("Idle")
+                set_error("None")
+
+                if updated_fields:
+                    notify_click(f"Generate prompts updated: {', '.join(updated_fields)}")
+                else:
+                    ui.notify("Generate prompts made no changes (templates already populated).", type="warning")
+
+                if notes.strip():
+                    ui.notify(f"Prompt Architect notes: {notes[:120]}", type="info")
+            except PromptArchitectError as exc:
+                set_status("Error")
+                set_error(exc.message)
+                ui.notify(exc.message, type="negative")
+            except Exception as exc:
+                set_status("Error")
+                set_error(f"Generate prompts failed: {exc}")
+                ui.notify("Generate prompts failed.", type="negative")
 
         def run_iterations_action() -> None:
             set_status("Running")

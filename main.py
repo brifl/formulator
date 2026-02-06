@@ -234,7 +234,12 @@ def build_ui() -> None:
                 ui.notify("Load failed.", type="negative")
 
         def new_project_action() -> None:
-            notify_click("New project clicked.")
+            nonlocal last_saved_path
+            apply_state(ProjectState())
+            last_saved_path = None
+            set_status("Idle")
+            set_error("None")
+            notify_click("New project clicked. State reset to defaults.")
 
         with ui.row().classes("w-full gap-2"):
             ui.button("Generate prompts (if empty)", on_click=generate_prompts_action)

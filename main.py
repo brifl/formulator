@@ -18,6 +18,7 @@ def build_ui() -> None:
     """Render the stage-2 base shell with project inputs and phase controls."""
     history_records: list[IterationRecord] = []
     last_saved_path: Path | None = None
+    is_applying_state = False
 
     ui.label("Prompt Iteration Workbench").classes("text-3xl font-bold")
     ui.label("Adversarial prompt iteration workspace").classes("text-sm text-gray-600")
@@ -148,6 +149,12 @@ def build_ui() -> None:
             ui.button("Reset Idle", on_click=lambda: set_status("Idle"))
             ui.button("Trigger test error", on_click=trigger_test_error)
 
+    with ui.card().classes("w-full"):
+        ui.label("Persistence").classes("text-xl font-semibold")
+        autosave_toggle = ui.switch("Autosave on change", value=False)
+        last_saved_path_label = ui.label("Last saved path: (none)").classes("text-sm text-gray-700")
+        last_saved_time_label = ui.label("Last saved time: (never)").classes("text-sm text-gray-700")
+
     def state_from_ui() -> ProjectState:
         return ProjectState(
             outcome=str(outcome_input.value or ""),
@@ -164,19 +171,57 @@ def build_ui() -> None:
         )
 
     def apply_state(state: ProjectState) -> None:
-        outcome_input.value = state.outcome
-        requirements_input.value = state.requirements_constraints
-        resources_input.value = state.special_resources
-        iterations_input.value = state.iterations
-        format_input.value = state.output_format
-        additive_rules_input.value = state.additive_phase_allowed_changes
-        reductive_rules_input.value = state.reductive_phase_allowed_changes
-        additive_template_input.value = state.additive_prompt_template
-        reductive_template_input.value = state.reductive_prompt_template
-        current_output_input.value = state.current_output
-        history_records.clear()
-        history_records.extend(state.history)
-        render_history()
+        nonlocal is_applying_state
+        is_applying_state = True
+        try:
+            outcome_input.value = state.outcome
+            requirements_input.value = state.requirements_constraints
+            resources_input.value = state.special_resources
+            iterations_input.value = state.iterations
+            format_input.value = state.output_format
+            additive_rules_input.value = state.additive_phase_allowed_changes
+            reductive_rules_input.value = state.reductive_phase_allowed_changes
+            additive_template_input.value = state.additive_prompt_template
+            reductive_template_input.value = state.reductive_prompt_template
+            current_output_input.value = state.current_output
+            history_records.clear()
+            history_records.extend(state.history)
+            render_history()
+        finally:
+            is_applying_state = False
+
+    def update_save_metadata(path: Path) -> None:
+        last_saved_path_label.set_text(f"Last saved path: {path}")
+        last_saved_time_label.set_text(
+            f"Last saved time: {datetime.now().isoformat(timespec='seconds')}"
+        )
+
+    def persist_current_state() -> Path:
+        nonlocal last_saved_path
+        PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+        if last_saved_path is None:
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            last_saved_path = PROJECTS_DIR / f"project-{timestamp}.json"
+        save_project(state_from_ui(), last_saved_path)
+        update_save_metadata(last_saved_path)
+        return last_saved_path
+
+    def autosave_if_enabled() -> None:
+        if is_applying_state:
+            return
+        if not bool(autosave_toggle.value):
+            return
+        try:
+            persist_current_state()
+            set_status("Idle")
+            set_error("None")
+        except Exception as exc:
+            set_status("Error")
+            set_error(f"Autosave failed: {exc}")
+            ui.notify("Autosave failed.", type="negative")
+
+    def register_autosave(element: ui.element) -> None:
+        element.on("update:model-value", lambda _event: autosave_if_enabled())
 
     with ui.card().classes("w-full"):
         ui.label("Commands").classes("text-xl font-semibold")
@@ -199,16 +244,11 @@ def build_ui() -> None:
             notify_click("Stop clicked.")
 
         def save_project_action() -> None:
-            nonlocal last_saved_path
             try:
-                PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
-                if last_saved_path is None:
-                    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-                    last_saved_path = PROJECTS_DIR / f"project-{timestamp}.json"
-                save_project(state_from_ui(), last_saved_path)
+                saved_path = persist_current_state()
                 set_status("Idle")
                 set_error("None")
-                notify_click(f"Save project clicked. File: {last_saved_path}")
+                notify_click(f"Save project clicked. File: {saved_path}")
             except Exception as exc:
                 set_status("Error")
                 set_error(f"Save failed: {exc}")
@@ -225,6 +265,7 @@ def build_ui() -> None:
                     last_saved_path = candidates[-1]
                 loaded = load_project(last_saved_path)
                 apply_state(loaded)
+                update_save_metadata(last_saved_path)
                 set_status("Idle")
                 set_error("None")
                 notify_click(f"Load project clicked. File: {last_saved_path}")
@@ -237,6 +278,8 @@ def build_ui() -> None:
             nonlocal last_saved_path
             apply_state(ProjectState())
             last_saved_path = None
+            last_saved_path_label.set_text("Last saved path: (none)")
+            last_saved_time_label.set_text("Last saved time: (never)")
             set_status("Idle")
             set_error("None")
             notify_click("New project clicked. State reset to defaults.")
@@ -250,6 +293,20 @@ def build_ui() -> None:
             ui.button("Save project", on_click=save_project_action)
             ui.button("Load project", on_click=load_project_action)
             ui.button("New project", on_click=new_project_action)
+
+    for editable in [
+        outcome_input,
+        requirements_input,
+        resources_input,
+        iterations_input,
+        format_input,
+        additive_rules_input,
+        reductive_rules_input,
+        additive_template_input,
+        reductive_template_input,
+        current_output_input,
+    ]:
+        register_autosave(editable)
 
 
 def main() -> None:

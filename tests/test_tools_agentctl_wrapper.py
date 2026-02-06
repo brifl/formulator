@@ -67,3 +67,34 @@ def test_apply_next_hint_override_noop_when_state_differs() -> None:
 
     assert patched["recommended_role"] == "improvements"
     assert patched["recommended_prompt_id"] == "prompt.process_improvements"
+
+
+def test_apply_work_log_threshold_override_routes_to_implement() -> None:
+    mod = _load_wrapper_module()
+
+    decision = {
+        "recommended_role": "improvements",
+        "recommended_prompt_id": "prompt.process_improvements",
+        "reason": "Work log has 27 entries (>15).",
+    }
+
+    patched = mod._apply_work_log_threshold_override(decision)
+
+    assert patched["recommended_role"] == "implement"
+    assert patched["recommended_prompt_id"] == "prompt.checkpoint_implementation"
+    assert "work-log threshold" in patched["reason"].lower()
+
+
+def test_apply_work_log_threshold_override_noop_for_other_reasons() -> None:
+    mod = _load_wrapper_module()
+
+    decision = {
+        "recommended_role": "improvements",
+        "recommended_prompt_id": "prompt.process_improvements",
+        "reason": "Context snapshot missing (.vibe/CONTEXT.md).",
+    }
+
+    patched = mod._apply_work_log_threshold_override(decision)
+
+    assert patched["recommended_role"] == "improvements"
+    assert patched["recommended_prompt_id"] == "prompt.process_improvements"

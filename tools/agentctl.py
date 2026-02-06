@@ -91,6 +91,23 @@ def _apply_next_hint_override(
     return patched
 
 
+def _apply_work_log_threshold_override(decision: dict[str, object]) -> dict[str, object]:
+    patched = dict(decision)
+    if str(patched.get("recommended_role", "")) != "improvements":
+        return patched
+    reason_text = str(patched.get("reason", ""))
+    if "Work log has" not in reason_text:
+        return patched
+    patched["recommended_role"] = "implement"
+    patched["recommended_prompt_id"] = ROLE_TO_PROMPT_ID["implement"]
+    patched["recommended_prompt_title"] = "Checkpoint via work-log threshold fallback (implement)"
+    patched["reason"] = (
+        "Work-log threshold triggered improvements routing; "
+        "wrapper fallback selects implement to avoid repeated workflow starvation."
+    )
+    return patched
+
+
 def main() -> int:
     repo_root = Path(__file__).resolve().parents[1]
     target = repo_root / ".codex" / "skills" / "vibe-loop" / "scripts" / "agentctl.py"
@@ -119,6 +136,7 @@ def main() -> int:
 
         if isinstance(decision, dict):
             patched = _apply_next_hint_override(decision, _load_last_loop_result(repo_root))
+            patched = _apply_work_log_threshold_override(patched)
             sys.stdout.write(json.dumps(patched, indent=2, sort_keys=True) + "\n")
             return 0
 

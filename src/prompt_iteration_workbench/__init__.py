@@ -9,6 +9,7 @@ __all__ = [
     "engine",
     "prompt_templates",
     "formats",
+    "diffs",
     "validators",
     "validation_status",
     "history_view",

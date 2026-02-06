@@ -8,6 +8,7 @@ from pathlib import Path
 
 from nicegui import ui
 
+from prompt_iteration_workbench.diffs import unified_text_diff
 from prompt_iteration_workbench.engine import run_iterations, run_next_step
 from prompt_iteration_workbench.history_view import format_history_header
 from prompt_iteration_workbench.models import (
@@ -155,7 +156,7 @@ def build_ui() -> None:
                         "text-sm text-gray-600"
                     )
                     return
-                for record in history_records:
+                for index, record in enumerate(history_records):
                     with ui.expansion(format_history_header(record)).classes("w-full"):
                         ui.label(format_history_label(record)).classes("text-xs text-gray-600")
 
@@ -171,6 +172,20 @@ def build_ui() -> None:
                             ui.textarea(
                                 label="Prompt rendered",
                                 value=record.prompt_rendered,
+                            ).props("readonly autogrow").classes("w-full")
+
+                        if index == 0:
+                            ui.label("Diff vs previous entry: no prior diff is available.").classes(
+                                "text-sm text-gray-600"
+                            )
+                        else:
+                            previous_snapshot = history_records[index - 1].output_snapshot
+                            diff_text = unified_text_diff(previous_snapshot, record.output_snapshot)
+                            if not diff_text:
+                                diff_text = "(no textual changes from previous entry)"
+                            ui.textarea(
+                                label="Diff vs previous entry",
+                                value=diff_text,
                             ).props("readonly autogrow").classes("w-full")
 
         def inject_placeholder_history() -> None:

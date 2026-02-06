@@ -29,6 +29,7 @@ from prompt_iteration_workbench.prompt_templates import (
     render_template,
     validate_template,
 )
+from prompt_iteration_workbench.validation_status import describe_validation_state
 
 FORMAT_OPTIONS = ["Markdown", "JSON", "Text", "Python"]
 PROJECTS_DIR = Path("projects")
@@ -79,6 +80,7 @@ def build_ui() -> None:
     is_applying_state = False
     is_run_active = False
     stop_requested = False
+    current_status = "Idle"
 
     ui.label("Prompt Iteration Workbench").classes("text-3xl font-bold")
     ui.label("Adversarial prompt iteration workspace").classes("text-sm text-gray-600")
@@ -207,6 +209,8 @@ def build_ui() -> None:
         error_label = ui.label("Error: None").classes("text-sm text-red-700")
 
         def set_status(value: str) -> None:
+            nonlocal current_status
+            current_status = value
             status_label.set_text(f"Status: {value}")
 
         def set_error(message: str) -> None:
@@ -222,6 +226,21 @@ def build_ui() -> None:
             ui.button("Set Stopped", on_click=lambda: set_status("Stopped"))
             ui.button("Reset Idle", on_click=lambda: set_status("Idle"))
             ui.button("Trigger test error", on_click=trigger_test_error)
+
+    with ui.card().classes("w-full"):
+        ui.label("Validation Status").classes("text-xl font-semibold")
+        validation_status_label = ui.label("Validation status: Not applicable").classes("font-medium")
+        validation_error_label = ui.label("Validation message: (not applicable for selected format)").classes(
+            "text-sm text-gray-700"
+        )
+
+        def refresh_validation_status() -> None:
+            status_text, message_text = describe_validation_state(
+                str(current_output_input.value or ""),
+                str(format_input.value or ""),
+            )
+            validation_status_label.set_text(status_text)
+            validation_error_label.set_text(message_text)
 
     with ui.card().classes("w-full"):
         ui.label("Persistence").classes("text-xl font-semibold")
@@ -294,6 +313,7 @@ def build_ui() -> None:
             history_records.clear()
             history_records.extend(state.history)
             render_history()
+            refresh_validation_status()
         finally:
             is_applying_state = False
 
@@ -327,8 +347,18 @@ def build_ui() -> None:
             set_error(f"Autosave failed: {exc}")
             ui.notify("Autosave failed.", type="negative")
 
+    def refresh_validation_if_idle() -> None:
+        if is_applying_state or is_run_active:
+            return
+        if current_status != "Idle":
+            return
+        refresh_validation_status()
+
     def register_autosave(element: ui.element) -> None:
         element.on("update:model-value", lambda _event: autosave_if_enabled())
+
+    def register_validation_refresh(element: ui.element) -> None:
+        element.on("update:model-value", lambda _event: refresh_validation_if_idle())
 
     with ui.card().classes("w-full"):
         ui.label("Commands").classes("text-xl font-semibold")
@@ -401,6 +431,7 @@ def build_ui() -> None:
                 next_state = run_next_step(state_from_ui())
                 apply_state(next_state)
                 set_status("Idle")
+                refresh_validation_status()
                 notify_click("Run next step completed.")
             except Exception as exc:
                 set_status("Error")
@@ -492,6 +523,7 @@ def build_ui() -> None:
                     )
                 )
                 apply_state(result.state)
+                refresh_validation_status()
 
                 if result.cancelled:
                     set_status("Stopped")
@@ -526,6 +558,10 @@ def build_ui() -> None:
         current_output_input,
     ]:
         register_autosave(editable)
+
+    register_validation_refresh(current_output_input)
+    register_validation_refresh(format_input)
+    refresh_validation_status()
 
 
 def main() -> None:

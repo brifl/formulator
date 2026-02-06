@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import time
 from typing import Literal
 
@@ -11,6 +12,14 @@ from prompt_iteration_workbench.config import AppConfig
 ModelTier = Literal["budget", "premium"]
 ErrorCategory = Literal["auth", "rate_limit", "network", "invalid_request", "server", "unknown"]
 
+LOGGER = logging.getLogger("prompt_iteration_workbench.llm_client")
+if not LOGGER.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    LOGGER.addHandler(handler)
+LOGGER.setLevel(logging.INFO)
+LOGGER.propagate = False
+
 
 @dataclass(frozen=True)
 class LLMResponse:
@@ -18,6 +27,9 @@ class LLMResponse:
 
     text: str
     model_used: str
+    request_id: str | None = None
+    usage_input_tokens: int | None = None
+    usage_output_tokens: int | None = None
 
 
 class LLMError(Exception):
@@ -46,6 +58,38 @@ class LLMClient:
         if tier == "premium":
             return self.config.premium_model
         raise ValueError(f"Unsupported tier: {tier}")
+
+    def _log_request(
+        self,
+        *,
+        tier: ModelTier,
+        model: str,
+        system_text: str,
+        user_text: str,
+        outcome: Literal["success", "error"],
+        error_category: ErrorCategory | None,
+    ) -> None:
+        system_chars = len(system_text)
+        user_chars = len(user_text)
+        LOGGER.info(
+            "llm_request tier=%s model=%s prompt_chars=%d system_chars=%d user_chars=%d outcome=%s error_category=%s",
+            tier,
+            model,
+            system_chars + user_chars,
+            system_chars,
+            user_chars,
+            outcome,
+            error_category or "none",
+        )
+
+    @staticmethod
+    def _extract_token_count(usage: object, primary_key: str, fallback_key: str) -> int | None:
+        if usage is None:
+            return None
+        value = getattr(usage, primary_key, None)
+        if value is None:
+            value = getattr(usage, fallback_key, None)
+        return value if isinstance(value, int) else None
 
     def generate_text(
         self,
@@ -121,23 +165,74 @@ class LLMClient:
                     raise LLMError("Unable to prepare a compatible OpenAI request.", "invalid_request")
 
                 text = completion.choices[0].message.content or ""
-                return LLMResponse(text=text, model_used=resolved_model)
+                request_id_raw = getattr(completion, "id", None)
+                request_id = str(request_id_raw) if request_id_raw is not None else None
+                usage = getattr(completion, "usage", None)
+                usage_input_tokens = self._extract_token_count(usage, "prompt_tokens", "input_tokens")
+                usage_output_tokens = self._extract_token_count(usage, "completion_tokens", "output_tokens")
+                self._log_request(
+                    tier=tier,
+                    model=resolved_model,
+                    system_text=system_text,
+                    user_text=user_text,
+                    outcome="success",
+                    error_category=None,
+                )
+                return LLMResponse(
+                    text=text,
+                    model_used=resolved_model,
+                    request_id=request_id,
+                    usage_input_tokens=usage_input_tokens,
+                    usage_output_tokens=usage_output_tokens,
+                )
             except AuthenticationError as exc:
+                self._log_request(
+                    tier=tier,
+                    model=resolved_model,
+                    system_text=system_text,
+                    user_text=user_text,
+                    outcome="error",
+                    error_category="auth",
+                )
                 raise LLMError(
                     "Authentication failed. Check OPENAI_API_KEY and model access.",
                     "auth",
                 ) from exc
             except BadRequestError as exc:
+                self._log_request(
+                    tier=tier,
+                    model=resolved_model,
+                    system_text=system_text,
+                    user_text=user_text,
+                    outcome="error",
+                    error_category="invalid_request",
+                )
                 raise LLMError("Invalid request sent to OpenAI.", "invalid_request") from exc
             except RateLimitError as exc:
                 if attempt < self.max_retries:
                     time.sleep(0.4 * (attempt + 1))
                     continue
+                self._log_request(
+                    tier=tier,
+                    model=resolved_model,
+                    system_text=system_text,
+                    user_text=user_text,
+                    outcome="error",
+                    error_category="rate_limit",
+                )
                 raise LLMError("Rate limit reached. Retry in a moment.", "rate_limit") from exc
             except (APIConnectionError, APITimeoutError) as exc:
                 if attempt < self.max_retries:
                     time.sleep(0.4 * (attempt + 1))
                     continue
+                self._log_request(
+                    tier=tier,
+                    model=resolved_model,
+                    system_text=system_text,
+                    user_text=user_text,
+                    outcome="error",
+                    error_category="network",
+                )
                 raise LLMError("Network or timeout error while contacting OpenAI.", "network") from exc
             except APIStatusError as exc:
                 status_code = getattr(exc, "status_code", None)
@@ -145,11 +240,51 @@ class LLMClient:
                     if attempt < self.max_retries:
                         time.sleep(0.4 * (attempt + 1))
                         continue
+                    self._log_request(
+                        tier=tier,
+                        model=resolved_model,
+                        system_text=system_text,
+                        user_text=user_text,
+                        outcome="error",
+                        error_category="server",
+                    )
                     raise LLMError("OpenAI server error.", "server") from exc
+                self._log_request(
+                    tier=tier,
+                    model=resolved_model,
+                    system_text=system_text,
+                    user_text=user_text,
+                    outcome="error",
+                    error_category="unknown",
+                )
                 raise LLMError("Unexpected OpenAI API error.", "unknown") from exc
-            except LLMError:
+            except LLMError as exc:
+                self._log_request(
+                    tier=tier,
+                    model=resolved_model,
+                    system_text=system_text,
+                    user_text=user_text,
+                    outcome="error",
+                    error_category=exc.category,
+                )
                 raise
             except Exception as exc:
+                self._log_request(
+                    tier=tier,
+                    model=resolved_model,
+                    system_text=system_text,
+                    user_text=user_text,
+                    outcome="error",
+                    error_category="unknown",
+                )
                 raise LLMError("Unexpected LLM request failure.", "unknown") from exc
 
+        self._log_request(
+            tier=tier,
+            model=resolved_model,
+            system_text=system_text,
+            user_text=user_text,
+            outcome="error",
+            error_category="unknown",
+        )
         raise LLMError("Unexpected LLM request failure.", "unknown")

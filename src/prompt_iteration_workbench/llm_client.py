@@ -1,4 +1,4 @@
-"""LLM client contract and tier-based model routing."""
+"""LLM client contract, model routing, and normalized API errors."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing import Literal
 from prompt_iteration_workbench.config import AppConfig
 
 ModelTier = Literal["budget", "premium"]
+ErrorCategory = Literal["auth", "rate_limit", "network", "invalid_request", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -16,6 +17,15 @@ class LLMResponse:
 
     text: str
     model_used: str
+
+
+class LLMError(Exception):
+    """Normalized error carrying a user-readable message and category."""
+
+    def __init__(self, message: str, category: ErrorCategory) -> None:
+        super().__init__(message)
+        self.message = message
+        self.category = category
 
 
 class LLMClient:
@@ -44,14 +54,50 @@ class LLMClient:
         max_output_tokens: int = 512,
         model_override: str | None = None,
     ) -> LLMResponse:
-        """
-        Return a normalized placeholder response while API integration is pending.
-
-        This method intentionally returns deterministic local output in checkpoint 4.0.
-        """
-        _ = system_text
-        _ = temperature
-        _ = max_output_tokens
+        """Generate text with OpenAI and return normalized response data."""
         resolved_model = self.resolve_model(tier=tier, model_override=model_override)
-        placeholder = f"[stub:{tier}] {user_text}".strip()
-        return LLMResponse(text=placeholder, model_used=resolved_model)
+
+        try:
+            from openai import (
+                APIConnectionError,
+                APITimeoutError,
+                AuthenticationError,
+                BadRequestError,
+                OpenAI,
+                RateLimitError,
+            )
+        except ModuleNotFoundError as exc:
+            raise LLMError(
+                "OpenAI client dependency is missing. Install project requirements.",
+                "unknown",
+            ) from exc
+
+        client = OpenAI(api_key=self.config.openai_api_key)
+
+        messages: list[dict[str, str]] = []
+        if system_text.strip():
+            messages.append({"role": "system", "content": system_text})
+        messages.append({"role": "user", "content": user_text})
+
+        try:
+            completion = client.chat.completions.create(
+                model=resolved_model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_output_tokens,
+            )
+            text = completion.choices[0].message.content or ""
+            return LLMResponse(text=text, model_used=resolved_model)
+        except AuthenticationError as exc:
+            raise LLMError(
+                "Authentication failed. Check OPENAI_API_KEY and model access.",
+                "auth",
+            ) from exc
+        except RateLimitError as exc:
+            raise LLMError("Rate limit reached. Retry in a moment.", "rate_limit") from exc
+        except (APIConnectionError, APITimeoutError) as exc:
+            raise LLMError("Network error while contacting OpenAI.", "network") from exc
+        except BadRequestError as exc:
+            raise LLMError("Invalid request sent to OpenAI.", "invalid_request") from exc
+        except Exception as exc:
+            raise LLMError("Unexpected LLM request failure.", "unknown") from exc

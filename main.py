@@ -9,6 +9,7 @@ from nicegui import ui
 
 from prompt_iteration_workbench.models import IterationRecord, ProjectState
 from prompt_iteration_workbench.persistence import load_project, save_project
+from prompt_iteration_workbench.prompt_templates import SUPPORTED_TOKENS, render_template, validate_template
 
 FORMAT_OPTIONS = ["Markdown", "JSON", "Text", "Python"]
 PROJECTS_DIR = Path("projects")
@@ -63,6 +64,9 @@ def build_ui() -> None:
                 label="Reductive prompt template",
                 placeholder="Template text for reductive phase",
             ).props("autogrow")
+            with ui.row().classes("w-full gap-2"):
+                ui.button("Preview additive", on_click=lambda: preview_template("additive"))
+                ui.button("Preview reductive", on_click=lambda: preview_template("reductive"))
 
         with ui.card().classes("w-full lg:w-1/2"):
             ui.label("Current Output").classes("text-xl font-semibold")
@@ -70,6 +74,12 @@ def build_ui() -> None:
                 label="Current output (editable)",
                 placeholder="Current working draft",
             ).props("autogrow")
+
+    with ui.dialog() as preview_dialog, ui.card().classes("w-[92vw] max-w-5xl"):
+        preview_title = ui.label("Rendered prompt preview").classes("text-lg font-semibold")
+        preview_validation_label = ui.label("Validation: OK").classes("text-sm")
+        preview_textarea = ui.textarea(label="Rendered prompt").props("readonly autogrow").classes("w-full")
+        ui.button("Close", on_click=preview_dialog.close)
 
     with ui.card().classes("w-full"):
         ui.label("History").classes("text-xl font-semibold")
@@ -154,6 +164,49 @@ def build_ui() -> None:
         autosave_toggle = ui.switch("Autosave on change", value=False)
         last_saved_path_label = ui.label("Last saved path: (none)").classes("text-sm text-gray-700")
         last_saved_time_label = ui.label("Last saved time: (never)").classes("text-sm text-gray-700")
+
+    def build_preview_context(*, phase_name: str) -> dict[str, object]:
+        phase_rules = (
+            str(additive_rules_input.value or "")
+            if phase_name == "additive"
+            else str(reductive_rules_input.value or "")
+        )
+        return {
+            "OUTCOME": str(outcome_input.value or ""),
+            "REQUIREMENTS": str(requirements_input.value or ""),
+            "SPECIAL_RESOURCES": str(resources_input.value or ""),
+            "FORMAT": str(format_input.value or ""),
+            "PHASE_RULES": phase_rules,
+            "CURRENT_OUTPUT": str(current_output_input.value or ""),
+            "ITERATION_INDEX": int(iterations_input.value or 1),
+            "PHASE_NAME": phase_name,
+        }
+
+    def preview_template(phase_name: str) -> None:
+        template_text = (
+            str(additive_template_input.value or "")
+            if phase_name == "additive"
+            else str(reductive_template_input.value or "")
+        )
+        context = build_preview_context(phase_name=phase_name)
+        validation = validate_template(template_text, SUPPORTED_TOKENS, set())
+        rendered = render_template(template_text, context)
+
+        preview_title.set_text(f"{phase_name.title()} prompt preview")
+        if validation.unknown or validation.missing_required:
+            issues: list[str] = []
+            if validation.unknown:
+                unknown = ", ".join(f"{{{{{token}}}}}" for token in sorted(validation.unknown))
+                issues.append(f"Unknown tokens: {unknown}")
+            if validation.missing_required:
+                missing = ", ".join(f"{{{{{token}}}}}" for token in sorted(validation.missing_required))
+                issues.append(f"Missing required tokens: {missing}")
+            preview_validation_label.set_text("Validation issues: " + " | ".join(issues))
+        else:
+            preview_validation_label.set_text("Validation: OK")
+
+        preview_textarea.value = rendered
+        preview_dialog.open()
 
     def state_from_ui() -> ProjectState:
         return ProjectState(

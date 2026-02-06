@@ -44,6 +44,21 @@ def apply_generated_templates(
     return next_additive, next_reductive, updated_fields
 
 
+def describe_template_validation_issues(template_name: str, template_text: str) -> str | None:
+    """Summarize unknown/missing token issues for UI warning display."""
+    validation = validate_template(template_text, SUPPORTED_TOKENS, set())
+    parts: list[str] = []
+    if validation.unknown:
+        unknown = ", ".join(f"{{{{{token}}}}}" for token in sorted(validation.unknown))
+        parts.append(f"unknown tokens: {unknown}")
+    if validation.missing_required:
+        missing = ", ".join(f"{{{{{token}}}}}" for token in sorted(validation.missing_required))
+        parts.append(f"missing required tokens: {missing}")
+    if not parts:
+        return None
+    return f"{template_name}: " + "; ".join(parts)
+
+
 def build_ui() -> None:
     """Render the stage-2 base shell with project inputs and phase controls."""
     history_records: list[IterationRecord] = []
@@ -305,6 +320,20 @@ def build_ui() -> None:
         def generate_prompts_action() -> None:
             try:
                 generated_additive, generated_reductive, notes = generate_templates(state_from_ui())
+                validation_warnings: list[str] = []
+                for template_name, template_text in (
+                    ("additive", generated_additive),
+                    ("reductive", generated_reductive),
+                ):
+                    issue = describe_template_validation_issues(template_name, template_text)
+                    if issue is not None:
+                        validation_warnings.append(issue)
+
+                if validation_warnings:
+                    ui.notify("Template validation warnings: " + " | ".join(validation_warnings), type="warning")
+                else:
+                    ui.notify("Template validation: no unknown tokens detected.", type="positive")
+
                 next_additive, next_reductive, updated_fields = apply_generated_templates(
                     existing_additive=str(additive_template_input.value or ""),
                     existing_reductive=str(reductive_template_input.value or ""),

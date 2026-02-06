@@ -15,6 +15,7 @@ from prompt_iteration_workbench.engine import (
     run_next_step,
 )
 from prompt_iteration_workbench.history_view import format_history_header
+from prompt_iteration_workbench.history_restore import restore_history_snapshot
 from prompt_iteration_workbench.llm_client import LLMError
 from prompt_iteration_workbench.models import (
     HISTORY_EVENT_PHASE_STEP,
@@ -174,6 +175,29 @@ def build_ui() -> None:
                 set_error(f"Generate change summary failed: {exc}")
                 ui.notify("Generate change summary failed.", type="negative")
 
+        def restore_history_entry_action(record_index: int) -> None:
+            try:
+                restored_output, restored_history = restore_history_snapshot(
+                    history_records,
+                    record_index=record_index,
+                )
+                current_output_input.value = restored_output
+                history_records.clear()
+                history_records.extend(restored_history)
+                render_history()
+                refresh_validation_status()
+                set_status("Restored")
+                set_error("None")
+                ui.notify("Current output restored from selected history entry.", type="positive")
+            except IndexError:
+                set_status("Error")
+                set_error("Restore failed: selected history entry is out of range.")
+                ui.notify("Restore failed: invalid history selection.", type="negative")
+            except Exception as exc:
+                set_status("Error")
+                set_error(f"Restore failed: {exc}")
+                ui.notify("Restore failed.", type="negative")
+
         def render_history() -> None:
             history_container.clear()
             with history_container:
@@ -222,6 +246,10 @@ def build_ui() -> None:
                         ui.button(
                             "Generate change summary",
                             on_click=lambda idx=index: generate_change_summary_action(idx),
+                        ).props("size=sm")
+                        ui.button(
+                            "Restore this output",
+                            on_click=lambda idx=index: restore_history_entry_action(idx),
                         ).props("size=sm")
 
         def inject_placeholder_history() -> None:

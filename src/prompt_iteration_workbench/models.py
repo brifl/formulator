@@ -13,6 +13,7 @@ def _utc_now_iso() -> str:
 HISTORY_EVENT_PHASE_STEP = "phase_step"
 HISTORY_EVENT_PROMPT_ARCHITECT = "prompt_architect"
 HISTORY_EVENT_REPAIR = "repair"
+HISTORY_EVENT_RESTORE = "restore"
 
 
 @dataclass
@@ -67,12 +68,23 @@ def make_repair_event(
     )
 
 
+def make_restore_event(*, note_summary: str, output_snapshot: str) -> IterationRecord:
+    """Create a non-phase history record for one restore action."""
+    return IterationRecord(
+        event_type=HISTORY_EVENT_RESTORE,
+        note_summary=note_summary.strip(),
+        output_snapshot=output_snapshot,
+    )
+
+
 def format_history_label(record: IterationRecord) -> str:
     """Format a history row label with distinct text for non-iteration events."""
     if record.event_type == HISTORY_EVENT_PROMPT_ARCHITECT:
         return "prompt_architect event - templates generated"
     if record.event_type == HISTORY_EVENT_REPAIR:
         return "repair event - structural validation retry"
+    if record.event_type == HISTORY_EVENT_RESTORE:
+        return "restore event - output restored from history"
     phase_prefix = f"{record.phase_name.title()} phase" if record.phase_name else "Phase step"
     return f"{phase_prefix} - step {record.phase_step_index}"
 

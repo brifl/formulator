@@ -14,6 +14,7 @@ from prompt_iteration_workbench.models import (
     ProjectState,
     make_prompt_architect_event,
 )
+from prompt_iteration_workbench.engine import run_next_step
 from prompt_iteration_workbench.persistence import load_project, save_project
 from prompt_iteration_workbench.prompt_architect import (
     PromptArchitectError,
@@ -390,7 +391,17 @@ def build_ui() -> None:
             notify_click("Run iterations clicked.")
 
         def run_next_step_action() -> None:
-            notify_click("Run next step clicked.")
+            try:
+                set_status("Running")
+                set_error("None")
+                next_state = run_next_step(state_from_ui())
+                apply_state(next_state)
+                set_status("Idle")
+                notify_click("Run next step completed.")
+            except Exception as exc:
+                set_status("Error")
+                set_error(f"Run next step failed: {exc}")
+                ui.notify("Run next step failed.", type="negative")
 
         def stop_action() -> None:
             set_status("Stopped")

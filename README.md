@@ -29,6 +29,10 @@ So if you select **Iterations = 3**, the engine runs:
 5. Additive (iteration 3)
 6. Reductive (iteration 3)
 
+History indexing uses two explicit counters:
+- `iteration_index`: 1-based additive/reductive pair number
+- `phase_step_index`: 1-based overall step number across the run
+
 ---
 
 ## Why this exists

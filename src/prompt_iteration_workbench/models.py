@@ -19,6 +19,7 @@ class IterationRecord:
     """Canonical history entry for one generated phase step."""
 
     event_type: str = HISTORY_EVENT_PHASE_STEP
+    iteration_index: int = 0
     pair_index: int = 0
     phase_step_index: int = 0
     phase_name: str = ""
@@ -27,6 +28,15 @@ class IterationRecord:
     prompt_rendered: str = ""
     output_snapshot: str = ""
     created_at: str = field(default_factory=_utc_now_iso)
+
+    def __post_init__(self) -> None:
+        # Backward compatibility: older checkpoints used pair_index only.
+        if self.iteration_index <= 0 and self.pair_index > 0:
+            self.iteration_index = self.pair_index
+        elif self.pair_index <= 0 and self.iteration_index > 0:
+            self.pair_index = self.iteration_index
+        elif self.iteration_index > 0 and self.pair_index > 0 and self.iteration_index != self.pair_index:
+            self.pair_index = self.iteration_index
 
 
 def make_prompt_architect_event(*, model_used: str, note_summary: str) -> IterationRecord:

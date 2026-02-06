@@ -39,6 +39,25 @@ def build_ui() -> None:
                 placeholder="What reductive steps are allowed to change",
             ).props("autogrow")
 
+    with ui.row().classes("w-full items-start gap-6"):
+        with ui.card().classes("w-full lg:w-1/2"):
+            ui.label("Prompt Templates").classes("text-xl font-semibold")
+            ui.textarea(
+                label="Additive prompt template",
+                placeholder="Template text for additive phase",
+            ).props("autogrow")
+            ui.textarea(
+                label="Reductive prompt template",
+                placeholder="Template text for reductive phase",
+            ).props("autogrow")
+
+        with ui.card().classes("w-full lg:w-1/2"):
+            ui.label("Current Output").classes("text-xl font-semibold")
+            ui.textarea(
+                label="Current output (editable)",
+                placeholder="Current working draft",
+            ).props("autogrow")
+
 
 def main() -> None:
     host = "127.0.0.1"

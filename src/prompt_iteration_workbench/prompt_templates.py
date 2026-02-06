@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
-from typing import Mapping
+from typing import Iterable, Mapping
 
 SUPPORTED_TOKENS: tuple[str, ...] = (
     "OUTCOME",
@@ -20,6 +21,33 @@ _TOKEN_PATTERN = re.compile(r"\{\{\s*([A-Z0-9_]+)\s*\}\}")
 
 ADDITIVE_TEMPLATE = ""
 REDUCTIVE_TEMPLATE = ""
+
+
+@dataclass(frozen=True)
+class TemplateValidationResult:
+    """Validation result for a template string."""
+
+    unknown: set[str]
+    missing_required: set[str]
+
+
+def find_tokens(template_text: str) -> set[str]:
+    """Return all token names detected in `{{TOKEN}}` placeholders."""
+    return {match.group(1) for match in _TOKEN_PATTERN.finditer(template_text)}
+
+
+def validate_template(
+    template_text: str,
+    allowed_tokens: Iterable[str],
+    required_tokens: Iterable[str],
+) -> TemplateValidationResult:
+    """Validate template tokens against allowed and required token sets."""
+    found = find_tokens(template_text)
+    allowed = set(allowed_tokens)
+    required = set(required_tokens)
+    unknown = {token for token in found if token not in allowed}
+    missing_required = {token for token in required if token not in found}
+    return TemplateValidationResult(unknown=unknown, missing_required=missing_required)
 
 
 def render_template(template_text: str, context: Mapping[str, object]) -> str:

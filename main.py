@@ -75,16 +75,16 @@ def build_ui() -> None:
                     return
                 for record in history_records:
                     with ui.card().classes("w-full bg-gray-50"):
-                        ui.label(f"{record.phase_name.title()} phase - step {record.step_index}")
-                        ui.label(record.timestamp_text).classes("text-xs text-gray-600")
+                        ui.label(f"{record.phase_name.title()} phase - step {record.phase_step_index}")
+                        ui.label(record.created_at).classes("text-xs text-gray-600")
 
         def inject_placeholder_history() -> None:
             history_records.clear()
             history_records.extend(
                 [
-                    IterationRecord(phase_name="additive", step_index=1, timestamp_text="2026-02-06 09:00:00"),
-                    IterationRecord(phase_name="reductive", step_index=2, timestamp_text="2026-02-06 09:01:00"),
-                    IterationRecord(phase_name="additive", step_index=3, timestamp_text="2026-02-06 09:02:00"),
+                    IterationRecord(pair_index=1, phase_step_index=1, phase_name="additive", created_at="2026-02-06 09:00:00"),
+                    IterationRecord(pair_index=1, phase_step_index=2, phase_name="reductive", created_at="2026-02-06 09:01:00"),
+                    IterationRecord(pair_index=2, phase_step_index=3, phase_name="additive", created_at="2026-02-06 09:02:00"),
                 ]
             )
             render_history()

@@ -1,14 +1,43 @@
-"""Minimal NiceGUI entrypoint for Prompt Iteration Workbench."""
+"""NiceGUI entrypoint for Prompt Iteration Workbench."""
 
 from __future__ import annotations
 
 from nicegui import ui
 
+FORMAT_OPTIONS = ["Markdown", "JSON", "Text", "Python"]
+
 
 def build_ui() -> None:
-    """Render the initial placeholder UI for local runs."""
-    ui.label("Prompt Iteration Workbench").classes("text-2xl font-bold")
-    ui.label("Checkpoint 1.2 placeholder UI is running.")
+    """Render the stage-2 base shell with project inputs and phase controls."""
+    ui.label("Prompt Iteration Workbench").classes("text-3xl font-bold")
+    ui.label("Adversarial prompt iteration workspace").classes("text-sm text-gray-600")
+
+    with ui.row().classes("w-full items-start gap-6"):
+        with ui.card().classes("w-full lg:w-1/2"):
+            ui.label("Project Inputs").classes("text-xl font-semibold")
+            ui.textarea(label="Outcome", placeholder="Example: Skin Cream Formulation").props("autogrow")
+            ui.textarea(label="Requirements and constraints", placeholder="Must-haves and must-nots").props(
+                "autogrow"
+            )
+            ui.textarea(
+                label="Special equipment, ingredients, skills",
+                placeholder="Anything non-standard available to you",
+            ).props("autogrow")
+
+        with ui.card().classes("w-full lg:w-1/2"):
+            ui.label("Phase Controls").classes("text-xl font-semibold")
+            ui.number(label="Iterations (additive + reductive pairs)", value=1, min=1, step=1).props(
+                "outlined"
+            )
+            ui.select(options=FORMAT_OPTIONS, value="Markdown", label="Format selector")
+            ui.textarea(
+                label="Additive phase allowed changes",
+                placeholder="What additive steps are allowed to change",
+            ).props("autogrow")
+            ui.textarea(
+                label="Reductive phase allowed changes",
+                placeholder="What reductive steps are allowed to change",
+            ).props("autogrow")
 
 
 def main() -> None:

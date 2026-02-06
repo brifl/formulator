@@ -107,9 +107,9 @@ Manual edits to **Current output** become the starting point for the next phase.
 ### Setup
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```
 
 ### Configure environment
@@ -131,7 +131,7 @@ BUDGET_LLM_MODEL=your_budget_model_name
 ### Run
 
 ```bash
-python main.py
+python3 main.py
 ```
 
 NiceGUI will print a local URL. Open it in your browser.
@@ -181,7 +181,7 @@ The goal is to spend premium compute only where it changes outcomes.
 
 ## Roadmap
 
-See `PLAN.md` for staged milestones and checkpoint acceptance criteria.
+See `.vibe/PLAN.md` for staged milestones and checkpoint acceptance criteria.
 
 ---
 

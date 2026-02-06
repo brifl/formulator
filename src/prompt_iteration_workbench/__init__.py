@@ -11,5 +11,6 @@ __all__ = [
     "formats",
     "validators",
     "validation_status",
+    "history_view",
     "prompt_architect",
 ]

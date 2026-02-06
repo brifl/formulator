@@ -9,6 +9,7 @@ from pathlib import Path
 from nicegui import ui
 
 from prompt_iteration_workbench.engine import run_iterations, run_next_step
+from prompt_iteration_workbench.history_view import format_history_header
 from prompt_iteration_workbench.models import (
     HISTORY_EVENT_PHASE_STEP,
     HISTORY_EVENT_PROMPT_ARCHITECT,
@@ -155,14 +156,22 @@ def build_ui() -> None:
                     )
                     return
                 for record in history_records:
-                    with ui.card().classes("w-full bg-gray-50"):
-                        ui.label(format_history_label(record))
-                        if record.event_type != HISTORY_EVENT_PHASE_STEP:
-                            if record.model_used:
-                                ui.label(f"Model: {record.model_used}").classes("text-xs text-gray-700")
-                            if record.note_summary.strip():
-                                ui.label(record.note_summary.strip()).classes("text-sm text-gray-700")
-                        ui.label(record.created_at).classes("text-xs text-gray-600")
+                    with ui.expansion(format_history_header(record)).classes("w-full"):
+                        ui.label(format_history_label(record)).classes("text-xs text-gray-600")
+
+                        if record.note_summary.strip():
+                            ui.label(record.note_summary.strip()).classes("text-sm text-gray-700")
+
+                        ui.textarea(
+                            label="Output snapshot",
+                            value=record.output_snapshot,
+                        ).props("readonly autogrow").classes("w-full")
+
+                        if record.prompt_rendered.strip():
+                            ui.textarea(
+                                label="Prompt rendered",
+                                value=record.prompt_rendered,
+                            ).props("readonly autogrow").classes("w-full")
 
         def inject_placeholder_history() -> None:
             history_records.clear()
@@ -172,6 +181,8 @@ def build_ui() -> None:
                         pair_index=1,
                         phase_step_index=1,
                         phase_name="additive",
+                        model_used="gpt-5-mini",
+                        prompt_rendered="Additive prompt placeholder render",
                         output_snapshot="Placeholder additive output",
                         created_at="2026-02-06 09:00:00",
                     ),
@@ -179,6 +190,7 @@ def build_ui() -> None:
                         pair_index=1,
                         phase_step_index=2,
                         phase_name="reductive",
+                        model_used="gpt-5-mini",
                         output_snapshot="Placeholder reductive output",
                         created_at="2026-02-06 09:01:00",
                     ),
@@ -186,6 +198,7 @@ def build_ui() -> None:
                         pair_index=2,
                         phase_step_index=3,
                         phase_name="additive",
+                        model_used="gpt-5-mini",
                         output_snapshot="Placeholder additive output",
                         created_at="2026-02-06 09:02:00",
                     ),

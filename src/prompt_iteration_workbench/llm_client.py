@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from typing import Literal
 
 from prompt_iteration_workbench.config import AppConfig
 
 ModelTier = Literal["budget", "premium"]
-ErrorCategory = Literal["auth", "rate_limit", "network", "invalid_request", "unknown"]
+ErrorCategory = Literal["auth", "rate_limit", "network", "invalid_request", "server", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -31,8 +32,10 @@ class LLMError(Exception):
 class LLMClient:
     """Primary LLM client interface with deterministic model routing."""
 
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(self, config: AppConfig, timeout_seconds: float = 30.0, max_retries: int = 2) -> None:
         self.config = config
+        self.timeout_seconds = timeout_seconds
+        self.max_retries = max(0, max_retries)
 
     def resolve_model(self, tier: ModelTier, model_override: str | None = None) -> str:
         """Resolve a model name from tier selection and optional override."""
@@ -60,6 +63,7 @@ class LLMClient:
         try:
             from openai import (
                 APIConnectionError,
+                APIStatusError,
                 APITimeoutError,
                 AuthenticationError,
                 BadRequestError,
@@ -72,61 +76,80 @@ class LLMClient:
                 "unknown",
             ) from exc
 
-        client = OpenAI(api_key=self.config.openai_api_key)
+        client = OpenAI(api_key=self.config.openai_api_key, timeout=self.timeout_seconds)
 
         messages: list[dict[str, str]] = []
         if system_text.strip():
             messages.append({"role": "system", "content": system_text})
         messages.append({"role": "user", "content": user_text})
 
-        try:
-            token_field = "max_completion_tokens"
-            include_temperature = True
-            completion = None
-            for _ in range(4):
-                request_base: dict[str, object] = {
-                    "model": resolved_model,
-                    "messages": messages,
-                }
-                if include_temperature:
-                    request_base["temperature"] = temperature
-                request_base[token_field] = max_output_tokens
+        for attempt in range(self.max_retries + 1):
+            try:
+                token_field = "max_completion_tokens"
+                include_temperature = True
+                completion = None
+                for _ in range(4):
+                    request_base: dict[str, object] = {
+                        "model": resolved_model,
+                        "messages": messages,
+                    }
+                    if include_temperature:
+                        request_base["temperature"] = temperature
+                    request_base[token_field] = max_output_tokens
 
-                try:
-                    completion = client.chat.completions.create(**request_base)
-                    break
-                except BadRequestError as retry_exc:
-                    message = str(retry_exc)
-                    changed = False
+                    try:
+                        completion = client.chat.completions.create(**request_base)
+                        break
+                    except BadRequestError as retry_exc:
+                        message = str(retry_exc)
+                        changed = False
 
-                    if token_field == "max_completion_tokens" and "max_completion_tokens" in message:
-                        token_field = "max_tokens"
-                        changed = True
-                    elif token_field == "max_tokens" and "max_tokens" in message and "max_completion_tokens" in message:
-                        token_field = "max_completion_tokens"
-                        changed = True
+                        if token_field == "max_completion_tokens" and "max_completion_tokens" in message:
+                            token_field = "max_tokens"
+                            changed = True
+                        elif token_field == "max_tokens" and "max_tokens" in message and "max_completion_tokens" in message:
+                            token_field = "max_completion_tokens"
+                            changed = True
 
-                    if include_temperature and "temperature" in message and "default (1)" in message:
-                        include_temperature = False
-                        changed = True
+                        if include_temperature and "temperature" in message and "default (1)" in message:
+                            include_temperature = False
+                            changed = True
 
-                    if not changed:
-                        raise
-            if completion is None:
-                raise LLMError("Unable to prepare a compatible OpenAI request.", "invalid_request")
+                        if not changed:
+                            raise
+                if completion is None:
+                    raise LLMError("Unable to prepare a compatible OpenAI request.", "invalid_request")
 
-            text = completion.choices[0].message.content or ""
-            return LLMResponse(text=text, model_used=resolved_model)
-        except AuthenticationError as exc:
-            raise LLMError(
-                "Authentication failed. Check OPENAI_API_KEY and model access.",
-                "auth",
-            ) from exc
-        except RateLimitError as exc:
-            raise LLMError("Rate limit reached. Retry in a moment.", "rate_limit") from exc
-        except (APIConnectionError, APITimeoutError) as exc:
-            raise LLMError("Network error while contacting OpenAI.", "network") from exc
-        except BadRequestError as exc:
-            raise LLMError("Invalid request sent to OpenAI.", "invalid_request") from exc
-        except Exception as exc:
-            raise LLMError("Unexpected LLM request failure.", "unknown") from exc
+                text = completion.choices[0].message.content or ""
+                return LLMResponse(text=text, model_used=resolved_model)
+            except AuthenticationError as exc:
+                raise LLMError(
+                    "Authentication failed. Check OPENAI_API_KEY and model access.",
+                    "auth",
+                ) from exc
+            except BadRequestError as exc:
+                raise LLMError("Invalid request sent to OpenAI.", "invalid_request") from exc
+            except RateLimitError as exc:
+                if attempt < self.max_retries:
+                    time.sleep(0.4 * (attempt + 1))
+                    continue
+                raise LLMError("Rate limit reached. Retry in a moment.", "rate_limit") from exc
+            except (APIConnectionError, APITimeoutError) as exc:
+                if attempt < self.max_retries:
+                    time.sleep(0.4 * (attempt + 1))
+                    continue
+                raise LLMError("Network or timeout error while contacting OpenAI.", "network") from exc
+            except APIStatusError as exc:
+                status_code = getattr(exc, "status_code", None)
+                if status_code is not None and status_code >= 500:
+                    if attempt < self.max_retries:
+                        time.sleep(0.4 * (attempt + 1))
+                        continue
+                    raise LLMError("OpenAI server error.", "server") from exc
+                raise LLMError("Unexpected OpenAI API error.", "unknown") from exc
+            except LLMError:
+                raise
+            except Exception as exc:
+                raise LLMError("Unexpected LLM request failure.", "unknown") from exc
+
+        raise LLMError("Unexpected LLM request failure.", "unknown")

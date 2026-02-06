@@ -163,6 +163,22 @@ def _build_repair_prompt(*, output_text: str, output_format: str, validation_mes
     )
 
 
+def _build_change_summary_prompt(*, previous_output: str, current_output: str) -> str:
+    previous_block = previous_output if previous_output.strip() else "(no previous output available)"
+    return (
+        "Summarize the changes between previous and current outputs.\n"
+        "Return exactly:\n"
+        "1) One short paragraph (1-3 sentences).\n"
+        "2) 3-6 bullet points, each starting with '- '.\n"
+        "Focus on concrete content differences.\n"
+        "If there are no meaningful differences, state that clearly.\n\n"
+        "Previous output:\n"
+        f"{previous_block}\n\n"
+        "Current output:\n"
+        f"{current_output}"
+    )
+
+
 def _attempt_structural_repair(
     *,
     client: LLMClient,
@@ -252,6 +268,37 @@ def run_next_step(state: ProjectState, *, tier: ModelTier = "budget") -> Project
         )
         next_state.current_output = repaired_output
         next_state.history.append(repair_event)
+    return next_state
+
+
+def generate_change_summary_for_record(
+    state: ProjectState,
+    *,
+    record_index: int,
+    tier: ModelTier = "budget",
+) -> ProjectState:
+    """Generate and store a change summary for one history record."""
+    if record_index < 0 or record_index >= len(state.history):
+        raise IndexError("record_index is out of range.")
+
+    selected_record = state.history[record_index]
+    previous_output = state.history[record_index - 1].output_snapshot if record_index > 0 else ""
+    summary_prompt = _build_change_summary_prompt(
+        previous_output=previous_output,
+        current_output=selected_record.output_snapshot,
+    )
+
+    client = LLMClient(get_config())
+    response = client.generate_text(
+        tier=tier,
+        system_text="",
+        user_text=summary_prompt,
+        temperature=0.1,
+        max_output_tokens=700,
+    )
+
+    next_state = apply_run_options(state)
+    next_state.history[record_index].change_summary = response.text.strip()
     return next_state
 
 

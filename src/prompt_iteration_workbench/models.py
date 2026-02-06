@@ -26,6 +26,7 @@ class IterationRecord:
     phase_name: str = ""
     model_used: str = ""
     note_summary: str = ""
+    change_summary: str = ""
     prompt_rendered: str = ""
     output_snapshot: str = ""
     created_at: str = field(default_factory=_utc_now_iso)

@@ -9,8 +9,13 @@ from pathlib import Path
 from nicegui import ui
 
 from prompt_iteration_workbench.diffs import unified_text_diff
-from prompt_iteration_workbench.engine import run_iterations, run_next_step
+from prompt_iteration_workbench.engine import (
+    generate_change_summary_for_record,
+    run_iterations,
+    run_next_step,
+)
 from prompt_iteration_workbench.history_view import format_history_header
+from prompt_iteration_workbench.llm_client import LLMError
 from prompt_iteration_workbench.models import (
     HISTORY_EVENT_PHASE_STEP,
     HISTORY_EVENT_PROMPT_ARCHITECT,
@@ -148,6 +153,27 @@ def build_ui() -> None:
         ui.label("History").classes("text-xl font-semibold")
         history_container = ui.column().classes("w-full gap-2")
 
+        def generate_change_summary_action(record_index: int) -> None:
+            try:
+                set_status("Running")
+                set_error("None")
+                next_state = generate_change_summary_for_record(
+                    state_from_ui(),
+                    record_index=record_index,
+                    tier="budget",
+                )
+                apply_state(next_state)
+                set_status("Idle")
+                ui.notify("Change summary generated.", type="positive")
+            except LLMError as exc:
+                set_status("Error")
+                set_error(exc.message)
+                ui.notify(exc.message, type="negative")
+            except Exception as exc:
+                set_status("Error")
+                set_error(f"Generate change summary failed: {exc}")
+                ui.notify("Generate change summary failed.", type="negative")
+
         def render_history() -> None:
             history_container.clear()
             with history_container:
@@ -187,6 +213,16 @@ def build_ui() -> None:
                                 label="Diff vs previous entry",
                                 value=diff_text,
                             ).props("readonly autogrow").classes("w-full")
+
+                        if record.change_summary.strip():
+                            ui.markdown(record.change_summary.strip()).classes("text-sm")
+                        else:
+                            ui.label("Change summary: (none)").classes("text-sm text-gray-600")
+
+                        ui.button(
+                            "Generate change summary",
+                            on_click=lambda idx=index: generate_change_summary_action(idx),
+                        ).props("size=sm")
 
         def inject_placeholder_history() -> None:
             history_records.clear()

@@ -80,12 +80,41 @@ class LLMClient:
         messages.append({"role": "user", "content": user_text})
 
         try:
-            completion = client.chat.completions.create(
-                model=resolved_model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_output_tokens,
-            )
+            token_field = "max_completion_tokens"
+            include_temperature = True
+            completion = None
+            for _ in range(4):
+                request_base: dict[str, object] = {
+                    "model": resolved_model,
+                    "messages": messages,
+                }
+                if include_temperature:
+                    request_base["temperature"] = temperature
+                request_base[token_field] = max_output_tokens
+
+                try:
+                    completion = client.chat.completions.create(**request_base)
+                    break
+                except BadRequestError as retry_exc:
+                    message = str(retry_exc)
+                    changed = False
+
+                    if token_field == "max_completion_tokens" and "max_completion_tokens" in message:
+                        token_field = "max_tokens"
+                        changed = True
+                    elif token_field == "max_tokens" and "max_tokens" in message and "max_completion_tokens" in message:
+                        token_field = "max_completion_tokens"
+                        changed = True
+
+                    if include_temperature and "temperature" in message and "default (1)" in message:
+                        include_temperature = False
+                        changed = True
+
+                    if not changed:
+                        raise
+            if completion is None:
+                raise LLMError("Unable to prepare a compatible OpenAI request.", "invalid_request")
+
             text = completion.choices[0].message.content or ""
             return LLMResponse(text=text, model_used=resolved_model)
         except AuthenticationError as exc:

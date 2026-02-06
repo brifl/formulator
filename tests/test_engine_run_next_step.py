@@ -86,3 +86,19 @@ def test_run_next_step_ignores_non_phase_history_events(monkeypatch) -> None:
     assert next_state.history[-1].phase_name == "additive"
     assert next_state.history[-1].iteration_index == 1
     assert next_state.history[-1].phase_step_index == 1
+
+
+def test_run_next_step_uses_manual_current_output_verbatim(monkeypatch) -> None:
+    _install_fake_llm(monkeypatch)
+
+    manual_edit = "MANUAL EDITED OUTPUT"
+    state = ProjectState(
+        additive_prompt_template="Input draft:\\n{{CURRENT_OUTPUT}}\\nAdd details.",
+        reductive_prompt_template="{{CURRENT_OUTPUT}}\\nReduce details.",
+        current_output=manual_edit,
+    )
+
+    next_state = run_next_step(state)
+
+    assert manual_edit in next_state.history[-1].prompt_rendered
+    assert next_state.history[-1].phase_name == "additive"

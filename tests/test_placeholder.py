@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from prompt_iteration_workbench import config, engine, llm_client, models, prompt_templates
+from prompt_iteration_workbench import config, engine, llm_client, models, prompt_architect, prompt_templates
 
 
 def test_placeholder_modules_are_importable() -> None:
@@ -11,3 +11,4 @@ def test_placeholder_modules_are_importable() -> None:
     assert llm_client is not None
     assert engine is not None
     assert prompt_templates is not None
+    assert prompt_architect is not None

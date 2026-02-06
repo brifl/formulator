@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import re
 from typing import Iterable, Mapping
 
+from prompt_iteration_workbench.models import ProjectState
+
 SUPPORTED_TOKENS: tuple[str, ...] = (
     "OUTCOME",
     "REQUIREMENTS",
@@ -48,6 +50,32 @@ def validate_template(
     unknown = {token for token in found if token not in allowed}
     missing_required = {token for token in required if token not in found}
     return TemplateValidationResult(unknown=unknown, missing_required=missing_required)
+
+
+def build_context(state: ProjectState, phase_name: str, iteration_index: int) -> dict[str, object]:
+    """Build a canonical render context from state and phase metadata."""
+    normalized_phase = str(phase_name or "")
+    if normalized_phase == "additive":
+        phase_rules = str(state.additive_phase_allowed_changes or "")
+    elif normalized_phase == "reductive":
+        phase_rules = str(state.reductive_phase_allowed_changes or "")
+    else:
+        phase_rules = ""
+
+    context: dict[str, object] = {token: "" for token in SUPPORTED_TOKENS}
+    context.update(
+        {
+            "OUTCOME": str(state.outcome or ""),
+            "REQUIREMENTS": str(state.requirements_constraints or ""),
+            "SPECIAL_RESOURCES": str(state.special_resources or ""),
+            "FORMAT": str(state.output_format or ""),
+            "PHASE_RULES": phase_rules,
+            "CURRENT_OUTPUT": str(state.current_output or ""),
+            "ITERATION_INDEX": int(iteration_index),
+            "PHASE_NAME": normalized_phase,
+        }
+    )
+    return context
 
 
 def render_template(template_text: str, context: Mapping[str, object]) -> str:

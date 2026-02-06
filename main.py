@@ -9,7 +9,12 @@ from nicegui import ui
 
 from prompt_iteration_workbench.models import IterationRecord, ProjectState
 from prompt_iteration_workbench.persistence import load_project, save_project
-from prompt_iteration_workbench.prompt_templates import SUPPORTED_TOKENS, render_template, validate_template
+from prompt_iteration_workbench.prompt_templates import (
+    SUPPORTED_TOKENS,
+    build_context,
+    render_template,
+    validate_template,
+)
 
 FORMAT_OPTIONS = ["Markdown", "JSON", "Text", "Python"]
 PROJECTS_DIR = Path("projects")
@@ -166,21 +171,11 @@ def build_ui() -> None:
         last_saved_time_label = ui.label("Last saved time: (never)").classes("text-sm text-gray-700")
 
     def build_preview_context(*, phase_name: str) -> dict[str, object]:
-        phase_rules = (
-            str(additive_rules_input.value or "")
-            if phase_name == "additive"
-            else str(reductive_rules_input.value or "")
+        return build_context(
+            state=state_from_ui(),
+            phase_name=phase_name,
+            iteration_index=int(iterations_input.value or 1),
         )
-        return {
-            "OUTCOME": str(outcome_input.value or ""),
-            "REQUIREMENTS": str(requirements_input.value or ""),
-            "SPECIAL_RESOURCES": str(resources_input.value or ""),
-            "FORMAT": str(format_input.value or ""),
-            "PHASE_RULES": phase_rules,
-            "CURRENT_OUTPUT": str(current_output_input.value or ""),
-            "ITERATION_INDEX": int(iterations_input.value or 1),
-            "PHASE_NAME": phase_name,
-        }
 
     def preview_template(phase_name: str) -> None:
         template_text = (

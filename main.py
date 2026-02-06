@@ -100,6 +100,28 @@ def build_ui() -> None:
         render_history()
 
     with ui.card().classes("w-full"):
+        ui.label("Run Status").classes("text-xl font-semibold")
+        status_label = ui.label("Status: Idle").classes("font-medium")
+        error_label = ui.label("Error: None").classes("text-sm text-red-700")
+
+        def set_status(value: str) -> None:
+            status_label.set_text(f"Status: {value}")
+
+        def set_error(message: str) -> None:
+            error_label.set_text(f"Error: {message}")
+
+        def trigger_test_error() -> None:
+            set_status("Error")
+            set_error("Test error: placeholder failure surface for UI verification.")
+            ui.notify("Test error surfaced.", type="negative")
+
+        with ui.row().classes("w-full gap-2"):
+            ui.button("Set Running", on_click=lambda: set_status("Running"))
+            ui.button("Set Stopped", on_click=lambda: set_status("Stopped"))
+            ui.button("Reset Idle", on_click=lambda: set_status("Idle"))
+            ui.button("Trigger test error", on_click=trigger_test_error)
+
+    with ui.card().classes("w-full"):
         ui.label("Commands").classes("text-xl font-semibold")
 
         def notify_click(message: str) -> None:

@@ -99,6 +99,25 @@ def build_ui() -> None:
 
         render_history()
 
+    with ui.card().classes("w-full"):
+        ui.label("Commands").classes("text-xl font-semibold")
+
+        def notify_click(message: str) -> None:
+            ui.notify(message, type="positive")
+
+        with ui.row().classes("w-full gap-2"):
+            ui.button(
+                "Generate prompts (if empty)",
+                on_click=lambda: notify_click("Generate prompts (if empty) clicked."),
+            )
+            ui.button("Run iterations", on_click=lambda: notify_click("Run iterations clicked."))
+            ui.button("Run next step", on_click=lambda: notify_click("Run next step clicked."))
+            stop_button = ui.button("Stop", on_click=lambda: notify_click("Stop clicked."))
+            stop_button.props("disable")
+            ui.button("Save project", on_click=lambda: notify_click("Save project clicked."))
+            ui.button("Load project", on_click=lambda: notify_click("Load project clicked."))
+            ui.button("New project", on_click=lambda: notify_click("New project clicked."))
+
 
 def main() -> None:
     host = "127.0.0.1"

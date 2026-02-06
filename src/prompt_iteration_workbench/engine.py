@@ -8,7 +8,12 @@ from typing import Callable
 from prompt_iteration_workbench.config import get_config
 from prompt_iteration_workbench.formats import get_format_guidance
 from prompt_iteration_workbench.llm_client import LLMClient, ModelTier
-from prompt_iteration_workbench.models import HISTORY_EVENT_PHASE_STEP, IterationRecord, ProjectState
+from prompt_iteration_workbench.models import (
+    HISTORY_EVENT_PHASE_STEP,
+    IterationRecord,
+    ProjectState,
+    make_repair_event,
+)
 from prompt_iteration_workbench.prompt_templates import build_context, render_template
 from prompt_iteration_workbench.validators import validate_for_format
 
@@ -143,6 +148,67 @@ def _template_mentions_format(template_text: str, output_format: str) -> bool:
     return False
 
 
+def _build_repair_prompt(*, output_text: str, output_format: str, validation_message: str) -> str:
+    normalized_format = str(output_format or "TEXT").strip() or "TEXT"
+    guidance = get_format_guidance(normalized_format)
+    return (
+        "The output below failed structural validation.\n"
+        f"Target format: {normalized_format}\n"
+        f"Validation error: {validation_message}\n\n"
+        "Rewrite the output to preserve the same content intent while fixing structure.\n"
+        "Return only the repaired output.\n\n"
+        f"{guidance}\n\n"
+        "Original output:\n"
+        f"{output_text}"
+    )
+
+
+def _attempt_structural_repair(
+    *,
+    client: LLMClient,
+    output_text: str,
+    output_format: str,
+    validation_message: str,
+) -> tuple[str, IterationRecord]:
+    repair_prompt = _build_repair_prompt(
+        output_text=output_text,
+        output_format=output_format,
+        validation_message=validation_message,
+    )
+    repair_result = client.generate_text(
+        tier="budget",
+        system_text="",
+        user_text=repair_prompt,
+        temperature=0.1,
+        max_output_tokens=1200,
+    )
+    repaired_validation = validate_for_format(repair_result.text, output_format)
+    if repaired_validation.ok:
+        note = f"Repair succeeded: {repaired_validation.message}"
+        return (
+            repair_result.text,
+            make_repair_event(
+                model_used=repair_result.model_used,
+                note_summary=note,
+                prompt_rendered=repair_prompt,
+                output_snapshot=repair_result.text,
+            ),
+        )
+    note = (
+        "Repair attempted but output is still invalid: "
+        f"{repaired_validation.message}"
+    )
+    return (
+        output_text,
+        make_repair_event(
+            model_used=repair_result.model_used,
+            note_summary=note,
+            prompt_rendered=repair_prompt,
+            output_snapshot=repair_result.text,
+        ),
+    )
+
+
 def run_next_step(state: ProjectState, *, tier: ModelTier = "budget") -> ProjectState:
     """Execute one phase step and append the resulting history record."""
     phase_name, iteration_index, phase_step_index = _next_phase_metadata(state)
@@ -177,6 +243,15 @@ def run_next_step(state: ProjectState, *, tier: ModelTier = "budget") -> Project
             output_snapshot=result.text,
         )
     )
+    if validation.applicable and not validation.ok:
+        repaired_output, repair_event = _attempt_structural_repair(
+            client=client,
+            output_text=result.text,
+            output_format=state.output_format,
+            validation_message=validation.message,
+        )
+        next_state.current_output = repaired_output
+        next_state.history.append(repair_event)
     return next_state
 
 

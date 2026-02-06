@@ -10,6 +10,7 @@ from nicegui import ui
 
 from prompt_iteration_workbench.engine import run_iterations, run_next_step
 from prompt_iteration_workbench.models import (
+    HISTORY_EVENT_PHASE_STEP,
     HISTORY_EVENT_PROMPT_ARCHITECT,
     format_history_label,
     IterationRecord,
@@ -154,7 +155,7 @@ def build_ui() -> None:
                 for record in history_records:
                     with ui.card().classes("w-full bg-gray-50"):
                         ui.label(format_history_label(record))
-                        if record.event_type == HISTORY_EVENT_PROMPT_ARCHITECT:
+                        if record.event_type != HISTORY_EVENT_PHASE_STEP:
                             if record.model_used:
                                 ui.label(f"Model: {record.model_used}").classes("text-xs text-gray-700")
                             if record.note_summary.strip():

@@ -37,7 +37,7 @@ def _install_capture_llm(monkeypatch):
     ):
         del self, tier, system_text, temperature, max_output_tokens, model_override
         captured["user_text"] = user_text
-        return LLMResponse(text="ok", model_used="test-budget-model")
+        return LLMResponse(text='{"ok": true}', model_used="test-budget-model")
 
     monkeypatch.setattr(engine_module.LLMClient, "generate_text", fake_generate_text)
     return captured

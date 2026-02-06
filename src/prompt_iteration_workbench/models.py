@@ -27,6 +27,7 @@ class IterationRecord:
 class ProjectState:
     """Canonical in-memory representation of project inputs and history."""
 
+    schema_version: int = 1
     outcome: str = ""
     requirements_constraints: str = ""
     special_resources: str = ""

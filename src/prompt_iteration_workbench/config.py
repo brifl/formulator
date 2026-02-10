@@ -9,6 +9,10 @@ import os
 REQUIRED_ENV_VARS = ("OPENAI_API_KEY", "PREMIUM_LLM_MODEL", "BUDGET_LLM_MODEL")
 
 
+class ConfigError(Exception):
+    """Configuration loading error with user-facing message text."""
+
+
 @dataclass(frozen=True)
 class AppConfig:
     """Application config contract for model and API settings."""
@@ -84,7 +88,7 @@ def _optional_float_env(name: str) -> float | None:
     try:
         return float(value)
     except ValueError as exc:
-        raise SystemExit(
+        raise ConfigError(
             f"Configuration error: {name} must be a valid float, got {value!r}."
         ) from exc
 
@@ -103,7 +107,7 @@ def get_config() -> AppConfig:
 
     if missing:
         missing_text = ", ".join(missing)
-        raise SystemExit(
+        raise ConfigError(
             "Configuration error: missing required environment variables: "
             f"{missing_text}. Set them in your shell or in `.env`."
         )

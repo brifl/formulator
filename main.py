@@ -154,14 +154,17 @@ def build_ui() -> None:
         ui.label("History").classes("text-xl font-semibold")
         history_container = ui.column().classes("w-full gap-2")
 
-        def generate_change_summary_action(record_index: int) -> None:
+        async def generate_change_summary_action(record_index: int) -> None:
             try:
                 set_status("Running")
                 set_error("None")
-                next_state = generate_change_summary_for_record(
-                    state_from_ui(),
-                    record_index=record_index,
-                    tier="budget",
+                source_state = state_from_ui()
+                next_state = await asyncio.to_thread(
+                    lambda: generate_change_summary_for_record(
+                        source_state,
+                        record_index=record_index,
+                        tier="budget",
+                    )
                 )
                 apply_state(next_state)
                 set_status("Idle")
@@ -243,9 +246,12 @@ def build_ui() -> None:
                         else:
                             ui.label("Change summary: (none)").classes("text-sm text-gray-600")
 
+                        async def generate_change_summary_click(idx: int = index) -> None:
+                            await generate_change_summary_action(idx)
+
                         ui.button(
                             "Generate change summary",
-                            on_click=lambda idx=index: generate_change_summary_action(idx),
+                            on_click=generate_change_summary_click,
                         ).props("size=sm")
                         ui.button(
                             "Restore this output",
@@ -459,9 +465,14 @@ def build_ui() -> None:
         def notify_click(message: str) -> None:
             ui.notify(message, type="positive")
 
-        def generate_prompts_action() -> None:
+        async def generate_prompts_action() -> None:
             try:
-                generated_additive, generated_reductive, notes = generate_templates(state_from_ui())
+                source_state = state_from_ui()
+                set_status("Running")
+                set_error("None")
+                generated_additive, generated_reductive, notes = await asyncio.to_thread(
+                    lambda: generate_templates(source_state)
+                )
                 validation_warnings: list[str] = []
                 for template_name, template_text in (
                     ("additive", generated_additive),
@@ -512,15 +523,17 @@ def build_ui() -> None:
                 set_error(f"Generate prompts failed: {exc}")
                 ui.notify("Generate prompts failed.", type="negative")
 
-        def run_next_step_action() -> None:
+        async def run_next_step_action() -> None:
             nonlocal is_run_active
             if is_run_active:
                 ui.notify("A run is already active.", type="warning")
                 return
             try:
+                is_run_active = True
                 set_status("Running")
                 set_error("None")
-                next_state = run_next_step(state_from_ui())
+                source_state = state_from_ui()
+                next_state = await asyncio.to_thread(lambda: run_next_step(source_state))
                 apply_state(next_state)
                 set_status("Idle")
                 refresh_validation_status()
@@ -529,6 +542,8 @@ def build_ui() -> None:
                 set_status("Error")
                 set_error(f"Run next step failed: {exc}")
                 ui.notify("Run next step failed.", type="negative")
+            finally:
+                is_run_active = False
 
         def stop_action() -> None:
             nonlocal stop_requested

@@ -105,6 +105,15 @@ def build_ui() -> None:
     stop_requested = False
     current_status = "Idle"
 
+    ui.add_css(
+        """
+        .piw-field,
+        .piw-field .q-field {
+            width: 100%;
+        }
+        """
+    )
+
     ui.label("Prompt Iteration Workbench").classes("text-3xl font-bold")
     ui.label("Adversarial prompt iteration workspace").classes("text-sm text-gray-600")
 
@@ -113,29 +122,31 @@ def build_ui() -> None:
             ui.label("Project Inputs").classes("text-xl font-semibold")
             outcome_input = ui.textarea(label="Outcome", placeholder="Example: Skin Cream Formulation").props(
                 "autogrow"
-            )
+            ).classes("piw-field")
             requirements_input = ui.textarea(
                 label="Requirements and constraints", placeholder="Must-haves and must-nots"
-            ).props("autogrow")
+            ).props("autogrow").classes("piw-field")
             resources_input = ui.textarea(
                 label="Special equipment, ingredients, skills",
                 placeholder="Anything non-standard available to you",
-            ).props("autogrow")
+            ).props("autogrow").classes("piw-field")
 
         with ui.card().classes("w-full lg:w-1/2"):
             ui.label("Phase Controls").classes("text-xl font-semibold")
             iterations_input = ui.number(
                 label="Iterations (additive + reductive pairs)", value=1, min=1, step=1
-            ).props("outlined")
-            format_input = ui.select(options=FORMAT_OPTIONS, value="Markdown", label="Format selector")
+            ).props("outlined").classes("piw-field")
+            format_input = ui.select(options=FORMAT_OPTIONS, value="Markdown", label="Format selector").classes(
+                "piw-field"
+            )
             additive_rules_input = ui.textarea(
                 label="Additive phase allowed changes",
                 placeholder="What additive steps are allowed to change",
-            ).props("autogrow")
+            ).props("autogrow").classes("piw-field")
             reductive_rules_input = ui.textarea(
                 label="Reductive phase allowed changes",
                 placeholder="What reductive steps are allowed to change",
-            ).props("autogrow")
+            ).props("autogrow").classes("piw-field")
 
     with ui.row().classes("w-full items-start gap-6"):
         with ui.card().classes("w-full lg:w-1/2"):
@@ -143,11 +154,11 @@ def build_ui() -> None:
             additive_template_input = ui.textarea(
                 label="Additive prompt template",
                 placeholder="Template text for additive phase",
-            ).props("autogrow")
+            ).props("autogrow").classes("piw-field")
             reductive_template_input = ui.textarea(
                 label="Reductive prompt template",
                 placeholder="Template text for reductive phase",
-            ).props("autogrow")
+            ).props("autogrow").classes("piw-field")
             with ui.row().classes("w-full gap-2"):
                 ui.button("Preview additive", on_click=lambda: preview_template("additive"))
                 ui.button("Preview reductive", on_click=lambda: preview_template("reductive"))
@@ -157,7 +168,7 @@ def build_ui() -> None:
             current_output_input = ui.textarea(
                 label="Current output (editable)",
                 placeholder="Current working draft",
-            ).props("autogrow")
+            ).props("autogrow").classes("piw-field")
 
     with ui.dialog() as preview_dialog, ui.card().classes("w-[92vw] max-w-5xl"):
         preview_title = ui.label("Rendered prompt preview").classes("text-lg font-semibold")

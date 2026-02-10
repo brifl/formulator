@@ -105,6 +105,13 @@ class LLMClient:
             value = getattr(usage, fallback_key, None)
         return value if isinstance(value, int) else None
 
+    @staticmethod
+    def _compact_error_message(error: BaseException, *, max_chars: int = 320) -> str:
+        compact = " ".join(str(error).split())
+        if len(compact) <= max_chars:
+            return compact
+        return f"{compact[: max_chars - 3]}..."
+
     def generate_text(
         self,
         *,
@@ -238,7 +245,11 @@ class LLMClient:
                     outcome="error",
                     error_category="invalid_request",
                 )
-                raise LLMError("Invalid request sent to OpenAI.", "invalid_request") from exc
+                detail = self._compact_error_message(exc)
+                raise LLMError(
+                    f"Invalid request sent to OpenAI: {detail}",
+                    "invalid_request",
+                ) from exc
             except RateLimitError as exc:
                 if attempt < self.max_retries:
                     time.sleep(0.4 * (attempt + 1))
@@ -280,6 +291,20 @@ class LLMClient:
                         error_category="server",
                     )
                     raise LLMError("OpenAI server error.", "server") from exc
+                detail = self._compact_error_message(exc)
+                if status_code is not None and 400 <= status_code < 500:
+                    self._log_request(
+                        tier=tier,
+                        model=resolved_model,
+                        system_text=system_text,
+                        user_text=user_text,
+                        outcome="error",
+                        error_category="invalid_request",
+                    )
+                    raise LLMError(
+                        f"OpenAI API error (status {status_code}): {detail}",
+                        "invalid_request",
+                    ) from exc
                 self._log_request(
                     tier=tier,
                     model=resolved_model,
@@ -288,7 +313,12 @@ class LLMClient:
                     outcome="error",
                     error_category="unknown",
                 )
-                raise LLMError("Unexpected OpenAI API error.", "unknown") from exc
+                if status_code is not None:
+                    raise LLMError(
+                        f"OpenAI API error (status {status_code}): {detail}",
+                        "unknown",
+                    ) from exc
+                raise LLMError(f"Unexpected OpenAI API error: {detail}", "unknown") from exc
             except LLMError as exc:
                 self._log_request(
                     tier=tier,

@@ -234,12 +234,16 @@ def run_next_step(state: ProjectState, *, tier: ModelTier = "budget") -> Project
     if not _template_mentions_format(template_text, state.output_format):
         prompt_rendered = f"{get_format_guidance(state.output_format)}\n\n{prompt_rendered}"
 
-    client = LLMClient(get_config())
+    config = get_config()
+    client = LLMClient(config)
+    phase_temperature = config.add_llm_temp if phase_name == "additive" else config.red_llm_temp
+    if phase_temperature is None:
+        phase_temperature = 0.2
     result = client.generate_text(
         tier=tier,
         system_text="",
         user_text=prompt_rendered,
-        temperature=0.2,
+        temperature=phase_temperature,
         max_output_tokens=1200,
     )
     validation = validate_for_format(result.text, state.output_format)

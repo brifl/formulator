@@ -18,6 +18,8 @@ class AppConfig:
     budget_model: str
     premium_reasoning_effort: str | None = None
     budget_reasoning_effort: str | None = None
+    add_llm_temp: float | None = None
+    red_llm_temp: float | None = None
 
     def __repr__(self) -> str:
         return (
@@ -26,7 +28,9 @@ class AppConfig:
             f"premium_model={self.premium_model!r}, "
             f"budget_model={self.budget_model!r}, "
             f"premium_reasoning_effort={self.premium_reasoning_effort!r}, "
-            f"budget_reasoning_effort={self.budget_reasoning_effort!r})"
+            f"budget_reasoning_effort={self.budget_reasoning_effort!r}, "
+            f"add_llm_temp={self.add_llm_temp!r}, "
+            f"red_llm_temp={self.red_llm_temp!r})"
         )
 
 
@@ -73,6 +77,18 @@ def _optional_env(name: str) -> str | None:
     return normalized or None
 
 
+def _optional_float_env(name: str) -> float | None:
+    value = _optional_env(name)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise SystemExit(
+            f"Configuration error: {name} must be a valid float, got {value!r}."
+        ) from exc
+
+
 def get_config() -> AppConfig:
     """Load config from environment variables and `.env` in repo root."""
     _load_dotenv(Path(".env"))
@@ -98,4 +114,6 @@ def get_config() -> AppConfig:
         budget_model=values["BUDGET_LLM_MODEL"],
         premium_reasoning_effort=_optional_env("PREMIUM_LLM_REASONING_EFFORT"),
         budget_reasoning_effort=_optional_env("BUDGET_LLM_REASONING_EFFORT"),
+        add_llm_temp=_optional_float_env("ADD_LLM_TEMP"),
+        red_llm_temp=_optional_float_env("RED_LLM_TEMP"),
     )

@@ -64,6 +64,8 @@ def test_generate_templates_uses_premium_tier_and_normalizes_invalid_layout(monk
     assert "{{PHASE_RULES}}" in additive_template
     assert "{{CURRENT_OUTPUT}}" in reductive_template
     assert "{{PHASE_RULES}}" in reductive_template
+    assert "infer and adopt the ideal expert role profile" in additive_template.lower()
+    assert "infer and adopt the ideal expert role profile" in reductive_template.lower()
     assert "Normalized output." in notes
 
 
@@ -119,3 +121,5 @@ def test_generate_templates_replaces_low_quality_placeholder_templates(monkeypat
     assert "{{OUTCOME}}" in reductive_template
     assert "{{FORMAT}}" in additive_template
     assert "{{FORMAT}}" in reductive_template
+    assert "infer and adopt the ideal expert role profile" in additive_template.lower()
+    assert "infer and adopt the ideal expert role profile" in reductive_template.lower()

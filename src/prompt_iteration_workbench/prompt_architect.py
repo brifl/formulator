@@ -23,6 +23,12 @@ LOW_QUALITY_MARKERS = (
     "provide the content to rewrite",
     "input missing",
 )
+ROLE_DIRECTIVE_MARKERS = (
+    "ideal expert role",
+    "infer and adopt",
+    "select the role",
+    "role profile",
+)
 
 
 class PromptArchitectError(Exception):
@@ -81,7 +87,10 @@ def _build_system_text() -> str:
         "5) Keep templates actionable and specific; avoid generic motivational language.\n"
         "6) NOTES must be brief and explain major design choices for each phase.\n"
         "7) Never ask the user to paste missing content.\n"
-        "8) The template must work whether {{CURRENT_OUTPUT}} is empty or non-empty."
+        "8) The template must work whether {{CURRENT_OUTPUT}} is empty or non-empty.\n"
+        "9) Each template must explicitly instruct the execution model to infer and adopt "
+        "the ideal expert role profile from {{OUTCOME}}, {{REQUIREMENTS}}, and {{SPECIAL_RESOURCES}} "
+        "before producing output."
     )
 
 
@@ -105,6 +114,7 @@ def _build_user_text(state: ProjectState, format_target: str) -> str:
         "Important: make the additive template aggressively expand useful detail, "
         "and make the reductive template aggressively improve clarity and concision while "
         "preserving correctness and constraints.\n"
+        "Abstract role design one level above domain specifics: do not hardcode a static persona.\n"
         "Do not produce placeholder copy like 'Original content missing'. "
         "Instruct the next LLM how to proceed from scratch when {{CURRENT_OUTPUT}} is empty."
     )
@@ -154,7 +164,10 @@ def _build_fallback_template(*, phase_name: str) -> str:
         else "simplify, rebalance, and tighten the output while preserving intent and correctness"
     )
     return (
-        "You are an expert prompt-iteration assistant working toward this target outcome:\n"
+        "Before generating output, infer and adopt the ideal expert role profile for this objective.\n"
+        "Use {{OUTCOME}}, {{REQUIREMENTS}}, and {{SPECIAL_RESOURCES}} to choose the right disciplines, "
+        "quality bar, and decision criteria.\n\n"
+        "Objective:\n"
         "{{OUTCOME}}\n\n"
         "Phase: {{PHASE_NAME}} (iteration {{ITERATION_INDEX}})\n"
         f"Phase objective: {phase_goal}.\n\n"
@@ -176,9 +189,25 @@ def _build_fallback_template(*, phase_name: str) -> str:
     )
 
 
+def _has_role_directive(template_text: str) -> bool:
+    normalized = template_text.lower()
+    return any(marker in normalized for marker in ROLE_DIRECTIVE_MARKERS)
+
+
+def _inject_role_directive(template_text: str) -> str:
+    directive = (
+        "Before producing output, infer and adopt the ideal expert role profile for this objective.\n"
+        "Use {{OUTCOME}}, {{REQUIREMENTS}}, and {{SPECIAL_RESOURCES}} to select the right disciplines, "
+        "depth, and rigor.\n"
+    )
+    return f"{directive}\n{template_text.strip()}"
+
+
 def _enforce_template_quality(*, template_text: str, phase_name: str) -> str:
     if _contains_low_quality_markers(template_text):
         return _build_fallback_template(phase_name=phase_name)
+    if not _has_role_directive(template_text):
+        return _inject_role_directive(template_text)
     return template_text
 
 

@@ -16,13 +16,17 @@ class AppConfig:
     openai_api_key: str
     premium_model: str
     budget_model: str
+    premium_reasoning_effort: str | None = None
+    budget_reasoning_effort: str | None = None
 
     def __repr__(self) -> str:
         return (
             "AppConfig("
             "openai_api_key='***REDACTED***', "
             f"premium_model={self.premium_model!r}, "
-            f"budget_model={self.budget_model!r})"
+            f"budget_model={self.budget_model!r}, "
+            f"premium_reasoning_effort={self.premium_reasoning_effort!r}, "
+            f"budget_reasoning_effort={self.budget_reasoning_effort!r})"
         )
 
 
@@ -61,6 +65,14 @@ def _require_env(name: str) -> str:
     raise KeyError(name)
 
 
+def _optional_env(name: str) -> str | None:
+    value = os.environ.get(name)
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
 def get_config() -> AppConfig:
     """Load config from environment variables and `.env` in repo root."""
     _load_dotenv(Path(".env"))
@@ -84,4 +96,6 @@ def get_config() -> AppConfig:
         openai_api_key=values["OPENAI_API_KEY"],
         premium_model=values["PREMIUM_LLM_MODEL"],
         budget_model=values["BUDGET_LLM_MODEL"],
+        premium_reasoning_effort=_optional_env("PREMIUM_LLM_REASONING_EFFORT"),
+        budget_reasoning_effort=_optional_env("BUDGET_LLM_REASONING_EFFORT"),
     )

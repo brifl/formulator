@@ -59,6 +59,14 @@ class LLMClient:
             return self.config.premium_model
         raise ValueError(f"Unsupported tier: {tier}")
 
+    def resolve_reasoning_effort(self, tier: ModelTier) -> str | None:
+        """Resolve reasoning effort for the selected tier."""
+        if tier == "budget":
+            return self.config.budget_reasoning_effort
+        if tier == "premium":
+            return self.config.premium_reasoning_effort
+        raise ValueError(f"Unsupported tier: {tier}")
+
     def _log_request(
         self,
         *,
@@ -103,6 +111,7 @@ class LLMClient:
     ) -> LLMResponse:
         """Generate text with OpenAI and return normalized response data."""
         resolved_model = self.resolve_model(tier=tier, model_override=model_override)
+        reasoning_effort = self.resolve_reasoning_effort(tier=tier)
 
         try:
             from openai import (
@@ -137,6 +146,8 @@ class LLMClient:
                         "model": resolved_model,
                         "messages": messages,
                     }
+                    if reasoning_effort is not None:
+                        request_base["reasoning_effort"] = reasoning_effort
                     if include_temperature:
                         request_base["temperature"] = temperature
                     request_base[token_field] = max_output_tokens

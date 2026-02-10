@@ -18,10 +18,14 @@ PROMPT_ARCHITECT_RESPONSE_LAYOUT = (
 )
 LOW_QUALITY_MARKERS = (
     "original content missing",
+    "original content was not provided",
     "paste the content to rewrite",
     "paste content to rewrite",
+    "paste the text you want rewritten",
     "provide the content to rewrite",
+    "text you want rewritten",
     "input missing",
+    "tagged layout",
 )
 ROLE_DIRECTIVE_MARKERS = (
     "ideal expert role",
@@ -146,7 +150,7 @@ def _normalize_to_tagged_layout(*, client: LLMClient, raw_text: str) -> str:
     user_text = (
         "Rewrite the following content into the required tagged layout.\n"
         "Preserve intent and details.\n\n"
-        "Original content:\n"
+        "Content to normalize:\n"
         f"{raw_text}"
     )
     return _generate_architect_text(client=client, system_text=system_text, user_text=user_text)

@@ -67,6 +67,12 @@ class LLMClient:
             return self.config.premium_reasoning_effort
         raise ValueError(f"Unsupported tier: {tier}")
 
+    @staticmethod
+    def _supports_chat_web_search(model: str) -> bool:
+        """Best-effort detection for Chat Completions web-search models."""
+        normalized = model.strip().lower()
+        return normalized == "gpt-5-search-api" or normalized.endswith("-search-preview")
+
     def _log_request(
         self,
         *,
@@ -140,12 +146,15 @@ class LLMClient:
             try:
                 token_field = "max_completion_tokens"
                 include_temperature = True
+                include_web_search_options = self._supports_chat_web_search(resolved_model)
                 completion = None
                 for _ in range(4):
                     request_base: dict[str, object] = {
                         "model": resolved_model,
                         "messages": messages,
                     }
+                    if include_web_search_options:
+                        request_base["web_search_options"] = {}
                     if reasoning_effort is not None:
                         request_base["reasoning_effort"] = reasoning_effort
                     if include_temperature:
@@ -157,6 +166,7 @@ class LLMClient:
                         break
                     except BadRequestError as retry_exc:
                         message = str(retry_exc)
+                        message_lower = message.lower()
                         changed = False
 
                         if token_field == "max_completion_tokens" and "max_completion_tokens" in message:
@@ -170,8 +180,18 @@ class LLMClient:
                             include_temperature = False
                             changed = True
 
+                        if include_web_search_options and "web_search_options" in message_lower:
+                            include_web_search_options = False
+                            changed = True
+
                         if not changed:
                             raise
+                    except TypeError as retry_exc:
+                        message_lower = str(retry_exc).lower()
+                        if include_web_search_options and "web_search_options" in message_lower:
+                            include_web_search_options = False
+                            continue
+                        raise
                 if completion is None:
                     raise LLMError("Unable to prepare a compatible OpenAI request.", "invalid_request")
 

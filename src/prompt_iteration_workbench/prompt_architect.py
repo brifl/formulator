@@ -16,6 +16,13 @@ PROMPT_ARCHITECT_RESPONSE_LAYOUT = (
     "<REDUCTIVE_TEMPLATE>\n...\n</REDUCTIVE_TEMPLATE>\n"
     "<NOTES>\n...\n</NOTES>"
 )
+LOW_QUALITY_MARKERS = (
+    "original content missing",
+    "paste the content to rewrite",
+    "paste content to rewrite",
+    "provide the content to rewrite",
+    "input missing",
+)
 
 
 class PromptArchitectError(Exception):
@@ -38,8 +45,9 @@ def _normalize_template(template_text: str, format_target: str) -> str:
     cleaned = template_text.strip()
     if not cleaned:
         cleaned = "Template generation returned empty content."
-    if format_target.lower() not in cleaned.lower():
-        cleaned = f"Target output format: {format_target}\n\n{cleaned}"
+    has_format_token = "{{FORMAT}}" in cleaned
+    if format_target.lower() not in cleaned.lower() and not has_format_token:
+        cleaned = f"Target output format: {{{{FORMAT}}}}\n\n{cleaned}"
     if "{{PHASE_RULES}}" not in cleaned:
         cleaned = f"{cleaned}\n\nAllowed phase changes:\n{{{{PHASE_RULES}}}}"
     if "{{CURRENT_OUTPUT}}" not in cleaned:
@@ -71,7 +79,9 @@ def _build_system_text() -> str:
         "4) Templates should also leverage {{OUTCOME}}, {{REQUIREMENTS}}, {{SPECIAL_RESOURCES}}, "
         "{{FORMAT}}, {{ITERATION_INDEX}}, and {{PHASE_NAME}}.\n"
         "5) Keep templates actionable and specific; avoid generic motivational language.\n"
-        "6) NOTES must be brief and explain major design choices for each phase."
+        "6) NOTES must be brief and explain major design choices for each phase.\n"
+        "7) Never ask the user to paste missing content.\n"
+        "8) The template must work whether {{CURRENT_OUTPUT}} is empty or non-empty."
     )
 
 
@@ -94,7 +104,9 @@ def _build_user_text(state: ProjectState, format_target: str) -> str:
         f"{current_output_preview}\n\n"
         "Important: make the additive template aggressively expand useful detail, "
         "and make the reductive template aggressively improve clarity and concision while "
-        "preserving correctness and constraints."
+        "preserving correctness and constraints.\n"
+        "Do not produce placeholder copy like 'Original content missing'. "
+        "Instruct the next LLM how to proceed from scratch when {{CURRENT_OUTPUT}} is empty."
     )
 
 
@@ -128,6 +140,46 @@ def _normalize_to_tagged_layout(*, client: LLMClient, raw_text: str) -> str:
         f"{raw_text}"
     )
     return _generate_architect_text(client=client, system_text=system_text, user_text=user_text)
+
+
+def _contains_low_quality_markers(template_text: str) -> bool:
+    normalized = template_text.lower()
+    return any(marker in normalized for marker in LOW_QUALITY_MARKERS)
+
+
+def _build_fallback_template(*, phase_name: str) -> str:
+    phase_goal = (
+        "expand quality, depth, and capability with 1-3 high-leverage improvements"
+        if phase_name == "additive"
+        else "simplify, rebalance, and tighten the output while preserving intent and correctness"
+    )
+    return (
+        "You are an expert prompt-iteration assistant working toward this target outcome:\n"
+        "{{OUTCOME}}\n\n"
+        "Phase: {{PHASE_NAME}} (iteration {{ITERATION_INDEX}})\n"
+        f"Phase objective: {phase_goal}.\n\n"
+        "Hard requirements and constraints:\n"
+        "{{REQUIREMENTS}}\n\n"
+        "Special resources you may leverage:\n"
+        "{{SPECIAL_RESOURCES}}\n\n"
+        "Allowed changes for this phase:\n"
+        "{{PHASE_RULES}}\n\n"
+        "Current draft (may be empty on early steps):\n"
+        "{{CURRENT_OUTPUT}}\n\n"
+        "Instructions:\n"
+        "1) If the current draft is empty, produce a strong first full version from scratch.\n"
+        "2) If the draft exists, revise it with high-impact improvements aligned to this phase.\n"
+        "3) Briefly explain the top adjustments and why they matter.\n"
+        "4) Then provide the full revised output in {{FORMAT}}.\n"
+        "5) Do not highlight edits inside the final output.\n"
+        "6) If no material improvement is available, say so and still return the best final output in {{FORMAT}}."
+    )
+
+
+def _enforce_template_quality(*, template_text: str, phase_name: str) -> str:
+    if _contains_low_quality_markers(template_text):
+        return _build_fallback_template(phase_name=phase_name)
+    return template_text
 
 
 def resolve_prompt_architect_model() -> str:
@@ -193,5 +245,13 @@ def generate_templates(state: ProjectState) -> tuple[str, str, str]:
 
     additive_template = _normalize_template(additive_raw, format_target)
     reductive_template = _normalize_template(reductive_raw, format_target)
+    additive_template = _enforce_template_quality(
+        template_text=additive_template,
+        phase_name="additive",
+    )
+    reductive_template = _enforce_template_quality(
+        template_text=reductive_template,
+        phase_name="reductive",
+    )
     notes = (notes_raw or "Prompt Architect templates generated.").strip()
     return additive_template, reductive_template, notes

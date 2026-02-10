@@ -94,6 +94,7 @@ class ProjectState:
     """Canonical in-memory representation of project inputs and history."""
 
     schema_version: int = 1
+    project_title: str = ""
     outcome: str = ""
     requirements_constraints: str = ""
     special_resources: str = ""

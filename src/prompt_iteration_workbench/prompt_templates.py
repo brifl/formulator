@@ -22,6 +22,7 @@ SUPPORTED_TOKENS: tuple[str, ...] = (
 )
 _SUPPORTED_TOKEN_SET = set(SUPPORTED_TOKENS)
 _TOKEN_PATTERN = re.compile(r"\{\{\s*([A-Z0-9_]+)\s*\}\}")
+EMPTY_CURRENT_OUTPUT_PLACEHOLDER = "<empty: please create first implementation>"
 
 ADDITIVE_TEMPLATE = ""
 REDUCTIVE_TEMPLATE = ""
@@ -64,6 +65,10 @@ def build_context(state: ProjectState, phase_name: str, iteration_index: int) ->
     else:
         phase_rules = ""
 
+    current_output = str(state.current_output or "").strip()
+    if not current_output:
+        current_output = EMPTY_CURRENT_OUTPUT_PLACEHOLDER
+
     context: dict[str, object] = {token: "" for token in SUPPORTED_TOKENS}
     context.update(
         {
@@ -73,7 +78,7 @@ def build_context(state: ProjectState, phase_name: str, iteration_index: int) ->
             "FORMAT": str(state.output_format or ""),
             "FORMAT_GUIDANCE": get_format_guidance(str(state.output_format or "Text")),
             "PHASE_RULES": phase_rules,
-            "CURRENT_OUTPUT": str(state.current_output or ""),
+            "CURRENT_OUTPUT": current_output,
             "ITERATION_INDEX": int(iteration_index),
             "PHASE_NAME": normalized_phase,
         }

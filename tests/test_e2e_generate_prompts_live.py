@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+import re
 
 import pytest
 
@@ -24,6 +25,7 @@ DOTENV_KEYS = (
     "ADD_LLM_TEMP",
     "RED_LLM_TEMP",
 )
+_TOKEN_PATTERN = re.compile(r"\{\{\s*([A-Z0-9_]+)\s*\}\}")
 
 
 def _is_truthy(value: str | None) -> bool:
@@ -157,6 +159,10 @@ def test_live_generate_prompts_saved_project() -> None:
     assert additive_template.strip()
     assert reductive_template.strip()
     assert "{{CURRENT_OUTPUT}}" in additive_template
-    assert "{{PHASE_RULES}}" in additive_template
     assert "{{CURRENT_OUTPUT}}" in reductive_template
-    assert "{{PHASE_RULES}}" in reductive_template
+    assert "Original content missing" not in additive_template
+    assert "Original content missing" not in reductive_template
+    assert "paste the content to rewrite" not in additive_template.lower()
+    assert "paste the content to rewrite" not in reductive_template.lower()
+    assert set(_TOKEN_PATTERN.findall(additive_template)) <= {"CURRENT_OUTPUT"}
+    assert set(_TOKEN_PATTERN.findall(reductive_template)) <= {"CURRENT_OUTPUT"}

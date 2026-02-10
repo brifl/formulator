@@ -7,7 +7,10 @@ from prompt_iteration_workbench.engine import run_next_step
 from prompt_iteration_workbench.formats import get_format_guidance
 from prompt_iteration_workbench.llm_client import LLMResponse
 from prompt_iteration_workbench.models import ProjectState
-from prompt_iteration_workbench.prompt_templates import build_context
+from prompt_iteration_workbench.prompt_templates import (
+    EMPTY_CURRENT_OUTPUT_PLACEHOLDER,
+    build_context,
+)
 
 
 def _install_capture_llm(monkeypatch):
@@ -60,6 +63,12 @@ def test_build_context_switches_guidance_by_format() -> None:
     assert json_context["FORMAT_GUIDANCE"] == get_format_guidance("JSON")
     assert markdown_context["FORMAT_GUIDANCE"] == get_format_guidance("Markdown")
     assert json_context["FORMAT_GUIDANCE"] != markdown_context["FORMAT_GUIDANCE"]
+
+
+def test_build_context_injects_placeholder_when_current_output_empty() -> None:
+    state = ProjectState(output_format="Markdown", current_output="")
+    context = build_context(state, phase_name="additive", iteration_index=1)
+    assert context["CURRENT_OUTPUT"] == EMPTY_CURRENT_OUTPUT_PLACEHOLDER
 
 
 def test_engine_prepends_guidance_when_template_omits_format(monkeypatch) -> None:

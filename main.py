@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import json
 import logging
 from pathlib import Path
+import re
 
 from nicegui import ui
+from nicegui.events import UploadEventArguments
 
 from prompt_iteration_workbench.diffs import unified_text_diff
 from prompt_iteration_workbench.engine import (
     generate_change_summary_for_record,
-    run_iterations,
     run_next_step,
 )
 from prompt_iteration_workbench.history_view import format_history_header
@@ -20,15 +22,15 @@ from prompt_iteration_workbench.history_restore import restore_history_snapshot
 from prompt_iteration_workbench.llm_client import LLMError
 from prompt_iteration_workbench.models import (
     HISTORY_EVENT_PHASE_STEP,
-    HISTORY_EVENT_PROMPT_ARCHITECT,
     format_history_label,
     IterationRecord,
     ProjectState,
     make_prompt_architect_event,
 )
-from prompt_iteration_workbench.persistence import load_project, save_project
+from prompt_iteration_workbench.persistence import load_project, load_project_from_text, save_project
 from prompt_iteration_workbench.prompt_architect import (
     PromptArchitectError,
+    generate_template_for_phase,
     generate_templates,
     resolve_prompt_architect_model,
 )
@@ -45,18 +47,68 @@ MODEL_TIER_OPTIONS = ["budget", "premium"]
 PROJECTS_DIR = Path("projects")
 LOG_FILE = Path("logs/app.log")
 LOGGER = logging.getLogger("prompt_iteration_workbench.ui")
+_TITLE_SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
+
+
+def _has_file_handler(logger: logging.Logger, path: Path) -> bool:
+    target_path = path.resolve()
+    for handler in logger.handlers:
+        if not isinstance(handler, logging.FileHandler):
+            continue
+        handler_path = Path(getattr(handler, "baseFilename", "")).resolve()
+        if handler_path == target_path:
+            return True
+    return False
 
 
 def _configure_logging() -> None:
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if LOGGER.handlers:
-        return
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
-    file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
-    file_handler.setFormatter(formatter)
-    LOGGER.addHandler(file_handler)
-    LOGGER.setLevel(logging.INFO)
-    LOGGER.propagate = False
+
+    for logger in (
+        LOGGER,
+        logging.getLogger("prompt_iteration_workbench.llm_client"),
+    ):
+        if not _has_file_handler(logger, LOG_FILE):
+            file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+
+
+def _slugify_title(text: str) -> str:
+    normalized = str(text or "").strip().lower()
+    if not normalized:
+        return ""
+    slug = _TITLE_SLUG_PATTERN.sub("-", normalized).strip("-")
+    return slug
+
+
+def _sanitize_upload_filename(name: str) -> str:
+    raw_name = Path(str(name or "")).name
+    stem = _slugify_title(Path(raw_name).stem)
+    if not stem:
+        stem = "project"
+    return f"{stem}.json"
+
+
+def _next_available_project_path(title: str, directory: Path) -> Path:
+    slug = _slugify_title(title)
+    if not slug:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        return directory / f"project-{timestamp}.json"
+
+    candidate = directory / f"{slug}.json"
+    if not candidate.exists():
+        return candidate
+
+    suffix = 2
+    while True:
+        versioned = directory / f"{slug}-{suffix}.json"
+        if not versioned.exists():
+            return versioned
+        suffix += 1
 
 
 def apply_generated_templates(
@@ -121,6 +173,10 @@ def build_ui() -> None:
     with ui.row().classes("w-full items-start gap-6"):
         with ui.card().classes("w-full lg:w-1/2"):
             ui.label("Project Inputs").classes("text-xl font-semibold")
+            project_title_input = ui.input(
+                label="Project title",
+                placeholder="Example: Ultimate Chili Recipe",
+            ).classes("piw-field")
             outcome_input = ui.textarea(label="Outcome", placeholder="Example: Skin Cream Formulation").props(
                 "autogrow"
             ).classes("piw-field")
@@ -180,6 +236,21 @@ def build_ui() -> None:
                 label="Current output (editable)",
                 placeholder="Current working draft",
             ).props("autogrow").classes("piw-field")
+
+            async def copy_current_output_action() -> None:
+                content = str(current_output_input.value or "")
+                try:
+                    await ui.run_javascript(
+                        f"navigator.clipboard.writeText({json.dumps(content)});"
+                    )
+                    ui.notify("Current output copied to clipboard.", type="positive")
+                except Exception as exc:
+                    LOGGER.exception("Copy to clipboard failed.")
+                    set_error(f"Copy failed: {exc}")
+                    ui.notify("Copy to clipboard failed.", type="negative")
+
+            with ui.row().classes("w-full justify-end"):
+                ui.button("Copy output", on_click=copy_current_output_action).props("size=sm")
 
     with ui.dialog() as preview_dialog, ui.card().classes("w-[92vw] max-w-5xl"):
         preview_title = ui.label("Rendered prompt preview").classes("text-lg font-semibold")
@@ -387,6 +458,32 @@ def build_ui() -> None:
         last_saved_path_label = ui.label("Last saved path: (none)").classes("text-sm text-gray-700")
         last_saved_time_label = ui.label("Last saved time: (never)").classes("text-sm text-gray-700")
 
+        def load_project_picker_action(event: UploadEventArguments) -> None:
+            nonlocal last_saved_path
+            try:
+                payload_text = event.content.read().decode("utf-8")
+                loaded = load_project_from_text(payload_text)
+                apply_state(loaded)
+
+                PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+                last_saved_path = PROJECTS_DIR / _sanitize_upload_filename(event.name)
+                last_saved_path_label.set_text(f"Last saved path: {last_saved_path}")
+                last_saved_time_label.set_text("Last saved time: (not saved since picker load)")
+                set_status("Idle")
+                set_error("None")
+                ui.notify(f"Loaded project from picker: {event.name}", type="positive")
+            except Exception as exc:
+                LOGGER.exception("Load from file picker failed unexpectedly.")
+                set_status("Error")
+                set_error(f"Load from picker failed: {exc}")
+                ui.notify("Load from file picker failed.", type="negative")
+
+        ui.label("Load project via file picker").classes("text-sm text-gray-700")
+        ui.upload(
+            on_upload=load_project_picker_action,
+            auto_upload=True,
+        ).props("accept=.json").classes("w-full")
+
     def build_preview_context(*, phase_name: str) -> dict[str, object]:
         return build_context(
             state=state_from_ui(),
@@ -422,6 +519,7 @@ def build_ui() -> None:
 
     def state_from_ui() -> ProjectState:
         return ProjectState(
+            project_title=str(project_title_input.value or ""),
             outcome=str(outcome_input.value or ""),
             requirements_constraints=str(requirements_input.value or ""),
             special_resources=str(resources_input.value or ""),
@@ -437,10 +535,21 @@ def build_ui() -> None:
             history=[IterationRecord(**record.__dict__) for record in history_records],
         )
 
+    def next_phase_metadata(state: ProjectState) -> tuple[str, int]:
+        phase_record_count = sum(
+            1
+            for record in state.history
+            if record.event_type == HISTORY_EVENT_PHASE_STEP and record.phase_name in ("additive", "reductive")
+        )
+        phase_name = "additive" if phase_record_count % 2 == 0 else "reductive"
+        iteration_index = (phase_record_count + 2) // 2
+        return phase_name, iteration_index
+
     def apply_state(state: ProjectState) -> None:
         nonlocal is_applying_state
         is_applying_state = True
         try:
+            project_title_input.value = state.project_title
             outcome_input.value = state.outcome
             requirements_input.value = state.requirements_constraints
             resources_input.value = state.special_resources
@@ -470,8 +579,8 @@ def build_ui() -> None:
         nonlocal last_saved_path
         PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
         if last_saved_path is None:
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            last_saved_path = PROJECTS_DIR / f"project-{timestamp}.json"
+            title = str(project_title_input.value or "").strip()
+            last_saved_path = _next_available_project_path(title, PROJECTS_DIR)
         save_project(state_from_ui(), last_saved_path)
         update_save_metadata(last_saved_path)
         return last_saved_path
@@ -513,11 +622,48 @@ def build_ui() -> None:
         async def generate_prompts_action() -> None:
             try:
                 source_state = state_from_ui()
+                existing_additive = str(additive_template_input.value or "")
+                existing_reductive = str(reductive_template_input.value or "")
+                overwrite_existing = bool(overwrite_templates_toggle.value)
+                needs_additive = overwrite_existing or not existing_additive.strip()
+                needs_reductive = overwrite_existing or not existing_reductive.strip()
+
+                # Do not spend LLM calls when both templates already exist unless overwrite is enabled.
+                if not needs_additive and not needs_reductive:
+                    set_status("Idle")
+                    set_error("None")
+                    ui.notify(
+                        "Generate prompts skipped: templates already exist. Enable overwrite to regenerate.",
+                        type="info",
+                    )
+                    return
+
                 set_status("Running")
                 set_error("None")
-                generated_additive, generated_reductive, notes = await asyncio.to_thread(
-                    lambda: generate_templates(source_state)
-                )
+                if needs_additive and needs_reductive:
+                    generated_additive, generated_reductive, notes = await asyncio.to_thread(
+                        lambda: generate_templates(source_state)
+                    )
+                else:
+                    generated_additive = existing_additive
+                    generated_reductive = existing_reductive
+                    note_parts: list[str] = []
+                    if needs_additive:
+                        generated_additive, additive_note = await asyncio.to_thread(
+                            lambda: generate_template_for_phase(source_state, "additive")
+                        )
+                        note_parts.append(additive_note)
+                    else:
+                        note_parts.append("additive: preserved")
+                    if needs_reductive:
+                        generated_reductive, reductive_note = await asyncio.to_thread(
+                            lambda: generate_template_for_phase(source_state, "reductive")
+                        )
+                        note_parts.append(reductive_note)
+                    else:
+                        note_parts.append("reductive: preserved")
+                    notes = "; ".join(note_parts)
+
                 validation_warnings: list[str] = []
                 for template_name, template_text in (
                     ("additive", generated_additive),
@@ -533,11 +679,11 @@ def build_ui() -> None:
                     ui.notify("Template validation: no unknown tokens detected.", type="positive")
 
                 next_additive, next_reductive, updated_fields = apply_generated_templates(
-                    existing_additive=str(additive_template_input.value or ""),
-                    existing_reductive=str(reductive_template_input.value or ""),
+                    existing_additive=existing_additive,
+                    existing_reductive=existing_reductive,
                     generated_additive=generated_additive,
                     generated_reductive=generated_reductive,
-                    overwrite_existing=bool(overwrite_templates_toggle.value),
+                    overwrite_existing=overwrite_existing,
                 )
                 additive_template_input.value = next_additive
                 reductive_template_input.value = next_reductive
@@ -577,9 +723,10 @@ def build_ui() -> None:
                 return
             try:
                 is_run_active = True
-                set_status("Running")
                 set_error("None")
                 source_state = state_from_ui()
+                phase_name, iteration_index = next_phase_metadata(source_state)
+                set_status(f"Running {phase_name} step of iteration {iteration_index}")
                 next_state = await asyncio.to_thread(lambda: run_next_step(source_state))
                 apply_state(next_state)
                 set_status("Idle")
@@ -668,29 +815,40 @@ def build_ui() -> None:
                 is_run_active = True
                 stop_requested = False
                 stop_button.enable()
-                set_status("Running")
                 set_error("None")
 
-                base_state = state_from_ui()
-                result = await asyncio.to_thread(
-                    lambda: run_iterations(
-                        base_state,
-                        iterations=requested_iterations,
-                        should_stop=lambda: stop_requested,
-                    )
-                )
-                apply_state(result.state)
-                refresh_validation_status()
+                total_phase_steps = requested_iterations * 2
+                steps_completed = 0
+                current_state = state_from_ui()
+                cancelled = False
 
-                if result.cancelled:
+                for _ in range(total_phase_steps):
+                    if stop_requested:
+                        cancelled = True
+                        break
+
+                    phase_name, _ = next_phase_metadata(current_state)
+                    iteration_in_run = (steps_completed // 2) + 1
+                    set_status(
+                        f"Running {phase_name} step of iteration {iteration_in_run} of {requested_iterations}"
+                    )
+                    current_state = await asyncio.to_thread(
+                        lambda state=current_state: run_next_step(state)
+                    )
+                    steps_completed += 1
+                    apply_state(current_state)
+                    refresh_validation_status()
+                    await asyncio.sleep(0)
+
+                if cancelled:
                     set_status("Stopped")
                     ui.notify(
-                        f"Run stopped after {result.steps_completed} phase steps.",
+                        f"Run stopped after {steps_completed} phase steps.",
                         type="warning",
                     )
                 else:
                     set_status("Idle")
-                    notify_click(f"Run iterations completed ({result.steps_completed} phase steps).")
+                    notify_click(f"Run iterations completed ({steps_completed} phase steps).")
             except Exception as exc:
                 LOGGER.exception("Run iterations failed unexpectedly.")
                 set_status("Error")
@@ -704,6 +862,7 @@ def build_ui() -> None:
         run_iterations_button.on_click(run_iterations_action)
 
     for editable in [
+        project_title_input,
         outcome_input,
         requirements_input,
         resources_input,

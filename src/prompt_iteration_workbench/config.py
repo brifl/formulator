@@ -24,6 +24,8 @@ class AppConfig:
     budget_reasoning_effort: str | None = None
     add_llm_temp: float | None = None
     red_llm_temp: float | None = None
+    verbose_llm_logging: bool = False
+    verbose_llm_log_max_chars: int = 4000
 
     def __repr__(self) -> str:
         return (
@@ -34,7 +36,9 @@ class AppConfig:
             f"premium_reasoning_effort={self.premium_reasoning_effort!r}, "
             f"budget_reasoning_effort={self.budget_reasoning_effort!r}, "
             f"add_llm_temp={self.add_llm_temp!r}, "
-            f"red_llm_temp={self.red_llm_temp!r})"
+            f"red_llm_temp={self.red_llm_temp!r}, "
+            f"verbose_llm_logging={self.verbose_llm_logging!r}, "
+            f"verbose_llm_log_max_chars={self.verbose_llm_log_max_chars!r})"
         )
 
 
@@ -93,6 +97,38 @@ def _optional_float_env(name: str) -> float | None:
         ) from exc
 
 
+def _optional_bool_env(name: str, *, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off", ""}:
+        return False
+    raise ConfigError(
+        f"Configuration error: {name} must be a boolean value (true/false), got {value!r}."
+    )
+
+
+def _optional_int_env(name: str, *, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    normalized = value.strip()
+    try:
+        parsed = int(normalized)
+    except ValueError as exc:
+        raise ConfigError(
+            f"Configuration error: {name} must be an integer, got {value!r}."
+        ) from exc
+    if parsed < 100:
+        raise ConfigError(
+            f"Configuration error: {name} must be >= 100, got {parsed}."
+        )
+    return parsed
+
+
 def get_config() -> AppConfig:
     """Load config from environment variables and `.env` in repo root."""
     _load_dotenv(Path(".env"))
@@ -120,4 +156,6 @@ def get_config() -> AppConfig:
         budget_reasoning_effort=_optional_env("BUDGET_LLM_REASONING_EFFORT"),
         add_llm_temp=_optional_float_env("ADD_LLM_TEMP"),
         red_llm_temp=_optional_float_env("RED_LLM_TEMP"),
+        verbose_llm_logging=_optional_bool_env("VERBOSE_LLM_LOGGING", default=False),
+        verbose_llm_log_max_chars=_optional_int_env("VERBOSE_LLM_LOG_MAX_CHARS", default=4000),
     )

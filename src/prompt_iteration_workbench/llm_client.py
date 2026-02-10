@@ -96,6 +96,84 @@ class LLMClient:
             error_category or "none",
         )
 
+    def _truncate_for_verbose_log(self, text: str) -> tuple[str, bool]:
+        limit = self.config.verbose_llm_log_max_chars
+        if len(text) <= limit:
+            return text, False
+        if limit <= 3:
+            return text[:limit], True
+        return f"{text[: limit - 3]}...", True
+
+    def _log_verbose_request(
+        self,
+        *,
+        tier: ModelTier,
+        model: str,
+        system_text: str,
+        user_text: str,
+        attempt: int,
+        compatibility_attempt: int,
+        token_field: str,
+        include_temperature: bool,
+        include_reasoning_effort: bool,
+        reasoning_effort: str | None,
+        include_web_search_options: bool,
+        max_output_tokens: int,
+        temperature: float,
+    ) -> None:
+        if not self.config.verbose_llm_logging:
+            return
+
+        system_preview, system_truncated = self._truncate_for_verbose_log(system_text)
+        user_preview, user_truncated = self._truncate_for_verbose_log(user_text)
+        LOGGER.info(
+            "llm_request_verbose tier=%s model=%s attempt=%d compatibility_attempt=%d "
+            "token_field=%s include_temperature=%s include_reasoning_effort=%s reasoning_effort=%s "
+            "include_web_search_options=%s max_output_tokens=%d temperature=%s "
+            "system_chars=%d user_chars=%d system_truncated=%s user_truncated=%s "
+            "system_text=%r user_text=%r",
+            tier,
+            model,
+            attempt,
+            compatibility_attempt,
+            token_field,
+            include_temperature,
+            include_reasoning_effort,
+            reasoning_effort or "none",
+            include_web_search_options,
+            max_output_tokens,
+            temperature,
+            len(system_text),
+            len(user_text),
+            system_truncated,
+            user_truncated,
+            system_preview,
+            user_preview,
+        )
+
+    def _log_verbose_response(
+        self,
+        *,
+        tier: ModelTier,
+        model: str,
+        request_id: str | None,
+        response_text: str,
+    ) -> None:
+        if not self.config.verbose_llm_logging:
+            return
+
+        response_preview, response_truncated = self._truncate_for_verbose_log(response_text)
+        LOGGER.info(
+            "llm_response_verbose tier=%s model=%s request_id=%s "
+            "response_chars=%d response_truncated=%s response_text=%r",
+            tier,
+            model,
+            request_id or "none",
+            len(response_text),
+            response_truncated,
+            response_preview,
+        )
+
     @staticmethod
     def _extract_token_count(usage: object, primary_key: str, fallback_key: str) -> int | None:
         if usage is None:
@@ -156,7 +234,7 @@ class LLMClient:
                 include_temperature = True
                 include_web_search_options = self._supports_chat_web_search(resolved_model)
                 completion = None
-                for _ in range(4):
+                for compatibility_attempt in range(4):
                     request_base: dict[str, object] = {
                         "model": resolved_model,
                         "messages": messages,
@@ -168,6 +246,22 @@ class LLMClient:
                     if include_temperature:
                         request_base["temperature"] = temperature
                     request_base[token_field] = max_output_tokens
+
+                    self._log_verbose_request(
+                        tier=tier,
+                        model=resolved_model,
+                        system_text=system_text,
+                        user_text=user_text,
+                        attempt=attempt + 1,
+                        compatibility_attempt=compatibility_attempt + 1,
+                        token_field=token_field,
+                        include_temperature=include_temperature,
+                        include_reasoning_effort=include_reasoning_effort,
+                        reasoning_effort=reasoning_effort,
+                        include_web_search_options=include_web_search_options,
+                        max_output_tokens=max_output_tokens,
+                        temperature=temperature,
+                    )
 
                     try:
                         completion = client.chat.completions.create(**request_base)
@@ -204,6 +298,14 @@ class LLMClient:
                     raise LLMError("Unable to prepare a compatible OpenAI request.", "invalid_request")
 
                 text = completion.choices[0].message.content or ""
+                request_id_raw = getattr(completion, "id", None)
+                request_id = str(request_id_raw) if request_id_raw is not None else None
+                self._log_verbose_response(
+                    tier=tier,
+                    model=resolved_model,
+                    request_id=request_id,
+                    response_text=text,
+                )
                 if not text.strip() and include_reasoning_effort and reasoning_effort is not None:
                     # Some models can consume the token budget with reasoning and emit empty text.
                     # Retry once without reasoning_effort to recover a usable response payload.
@@ -214,8 +316,6 @@ class LLMClient:
                     )
                     include_reasoning_effort = False
                     continue
-                request_id_raw = getattr(completion, "id", None)
-                request_id = str(request_id_raw) if request_id_raw is not None else None
                 usage = getattr(completion, "usage", None)
                 usage_input_tokens = self._extract_token_count(usage, "prompt_tokens", "input_tokens")
                 usage_output_tokens = self._extract_token_count(usage, "completion_tokens", "output_tokens")

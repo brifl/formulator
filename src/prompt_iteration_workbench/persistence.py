@@ -13,6 +13,7 @@ SUPPORTED_SCHEMA_VERSIONS = {1}
 def _serialize_state(state: ProjectState) -> dict[str, object]:
     return {
         "schema_version": state.schema_version,
+        "project_title": state.project_title,
         "outcome": state.outcome,
         "requirements_constraints": state.requirements_constraints,
         "special_resources": state.special_resources,
@@ -50,6 +51,7 @@ def _deserialize_state(payload: dict[str, object]) -> ProjectState:
 
     return ProjectState(
         schema_version=schema_version,
+        project_title=str(payload.get("project_title", "")),
         outcome=str(payload.get("outcome", "")),
         requirements_constraints=str(payload.get("requirements_constraints", "")),
         special_resources=str(payload.get("special_resources", "")),
@@ -77,7 +79,12 @@ def save_project(state: ProjectState, path: str | Path) -> None:
 def load_project(path: str | Path) -> ProjectState:
     """Load ProjectState from a JSON file with schema validation."""
     target = Path(path).expanduser()
-    payload = json.loads(target.read_text(encoding="utf-8"))
+    return load_project_from_text(target.read_text(encoding="utf-8"))
+
+
+def load_project_from_text(text: str) -> ProjectState:
+    """Load ProjectState from a JSON text payload with schema validation."""
+    payload = json.loads(text)
     if not isinstance(payload, dict):
         raise ValueError("Project file root must be an object")
     return _deserialize_state(payload)

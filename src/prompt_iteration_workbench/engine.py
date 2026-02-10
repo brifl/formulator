@@ -62,6 +62,7 @@ def apply_run_options(state: ProjectState, options: RunOptions | None = None) ->
     normalized_iterations = normalize_iterations(state, options)
     return ProjectState(
         schema_version=state.schema_version,
+        project_title=state.project_title,
         outcome=state.outcome,
         requirements_constraints=state.requirements_constraints,
         special_resources=state.special_resources,

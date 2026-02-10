@@ -41,6 +41,7 @@ from prompt_iteration_workbench.prompt_templates import (
 from prompt_iteration_workbench.validation_status import describe_validation_state
 
 FORMAT_OPTIONS = ["Markdown", "JSON", "Text", "Python"]
+MODEL_TIER_OPTIONS = ["budget", "premium"]
 PROJECTS_DIR = Path("projects")
 LOG_FILE = Path("logs/app.log")
 LOGGER = logging.getLogger("prompt_iteration_workbench.ui")
@@ -139,6 +140,16 @@ def build_ui() -> None:
             format_input = ui.select(options=FORMAT_OPTIONS, value="Markdown", label="Format selector").classes(
                 "piw-field"
             )
+            additive_tier_input = ui.select(
+                options=MODEL_TIER_OPTIONS,
+                value="budget",
+                label="Additive phase model tier",
+            ).classes("piw-field")
+            reductive_tier_input = ui.select(
+                options=MODEL_TIER_OPTIONS,
+                value="budget",
+                label="Reductive phase model tier",
+            ).classes("piw-field")
             additive_rules_input = ui.textarea(
                 label="Additive phase allowed changes",
                 placeholder="What additive steps are allowed to change",
@@ -416,6 +427,8 @@ def build_ui() -> None:
             special_resources=str(resources_input.value or ""),
             iterations=int(iterations_input.value or 1),
             output_format=str(format_input.value or "Markdown"),
+            additive_phase_model_tier=str(additive_tier_input.value or "budget"),
+            reductive_phase_model_tier=str(reductive_tier_input.value or "budget"),
             additive_phase_allowed_changes=str(additive_rules_input.value or ""),
             reductive_phase_allowed_changes=str(reductive_rules_input.value or ""),
             additive_prompt_template=str(additive_template_input.value or ""),
@@ -433,6 +446,8 @@ def build_ui() -> None:
             resources_input.value = state.special_resources
             iterations_input.value = state.iterations
             format_input.value = state.output_format
+            additive_tier_input.value = state.additive_phase_model_tier
+            reductive_tier_input.value = state.reductive_phase_model_tier
             additive_rules_input.value = state.additive_phase_allowed_changes
             reductive_rules_input.value = state.reductive_phase_allowed_changes
             additive_template_input.value = state.additive_prompt_template
@@ -694,6 +709,8 @@ def build_ui() -> None:
         resources_input,
         iterations_input,
         format_input,
+        additive_tier_input,
+        reductive_tier_input,
         additive_rules_input,
         reductive_rules_input,
         additive_template_input,

@@ -18,6 +18,7 @@ from prompt_iteration_workbench.prompt_templates import build_context, render_te
 from prompt_iteration_workbench.validators import validate_for_format
 
 PHASE_SEQUENCE = ("additive", "reductive")
+MODEL_TIERS = ("budget", "premium")
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,8 @@ def apply_run_options(state: ProjectState, options: RunOptions | None = None) ->
         special_resources=state.special_resources,
         iterations=normalized_iterations,
         output_format=state.output_format,
+        additive_phase_model_tier=state.additive_phase_model_tier,
+        reductive_phase_model_tier=state.reductive_phase_model_tier,
         additive_phase_allowed_changes=state.additive_phase_allowed_changes,
         reductive_phase_allowed_changes=state.reductive_phase_allowed_changes,
         additive_prompt_template=state.additive_prompt_template,
@@ -123,6 +126,23 @@ def _next_phase_metadata(state: ProjectState) -> tuple[str, int, int]:
     next_iteration_index = (next_phase_step_index + 1) // 2
     next_phase_name = PHASE_SEQUENCE[(next_phase_step_index - 1) % len(PHASE_SEQUENCE)]
     return next_phase_name, next_iteration_index, next_phase_step_index
+
+
+def _normalize_tier(value: str) -> ModelTier:
+    normalized = value.strip().lower()
+    if normalized in MODEL_TIERS:
+        return normalized  # type: ignore[return-value]
+    return "budget"
+
+
+def _phase_tier(state: ProjectState, phase_name: str, tier_override: ModelTier | None) -> ModelTier:
+    if tier_override is not None:
+        return tier_override
+    if phase_name == "additive":
+        return _normalize_tier(str(state.additive_phase_model_tier or "budget"))
+    if phase_name == "reductive":
+        return _normalize_tier(str(state.reductive_phase_model_tier or "budget"))
+    raise ValueError(f"Unsupported phase name: {phase_name}")
 
 
 def _template_for_phase(state: ProjectState, phase_name: str) -> str:
@@ -225,7 +245,7 @@ def _attempt_structural_repair(
     )
 
 
-def run_next_step(state: ProjectState, *, tier: ModelTier = "budget") -> ProjectState:
+def run_next_step(state: ProjectState, *, tier: ModelTier | None = None) -> ProjectState:
     """Execute one phase step and append the resulting history record."""
     phase_name, iteration_index, phase_step_index = _next_phase_metadata(state)
     template_text = _template_for_phase(state, phase_name)
@@ -236,11 +256,12 @@ def run_next_step(state: ProjectState, *, tier: ModelTier = "budget") -> Project
 
     config = get_config()
     client = LLMClient(config)
+    phase_tier = _phase_tier(state, phase_name, tier)
     phase_temperature = config.add_llm_temp if phase_name == "additive" else config.red_llm_temp
     if phase_temperature is None:
         phase_temperature = 0.2
     result = client.generate_text(
-        tier=tier,
+        tier=phase_tier,
         system_text="",
         user_text=prompt_rendered,
         temperature=phase_temperature,
@@ -310,7 +331,7 @@ def run_iterations(
     state: ProjectState,
     *,
     iterations: int | None = None,
-    tier: ModelTier = "budget",
+    tier: ModelTier | None = None,
     should_stop: Callable[[], bool] | None = None,
 ) -> RunIterationsResult:
     """Run up to N iterations (2N phase steps) with cooperative cancellation."""

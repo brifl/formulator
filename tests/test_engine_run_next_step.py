@@ -102,3 +102,23 @@ def test_run_next_step_uses_manual_current_output_verbatim(monkeypatch) -> None:
 
     assert manual_edit in next_state.history[-1].prompt_rendered
     assert next_state.history[-1].phase_name == "additive"
+
+
+def test_run_next_step_uses_phase_specific_model_tiers(monkeypatch) -> None:
+    _install_fake_llm(monkeypatch)
+
+    state = ProjectState(
+        additive_phase_model_tier="premium",
+        reductive_phase_model_tier="budget",
+        additive_prompt_template="{{CURRENT_OUTPUT}}\nExpand.",
+        reductive_prompt_template="{{CURRENT_OUTPUT}}\nReduce.",
+        current_output="seed",
+    )
+
+    step1 = run_next_step(state)
+    assert step1.current_output.startswith("premium:")
+    assert step1.history[-1].phase_name == "additive"
+
+    step2 = run_next_step(step1)
+    assert step2.current_output.startswith("budget:")
+    assert step2.history[-1].phase_name == "reductive"

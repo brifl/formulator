@@ -99,6 +99,8 @@ class ProjectState:
     special_resources: str = ""
     iterations: int = 1
     output_format: str = "Markdown"
+    additive_phase_model_tier: str = "budget"
+    reductive_phase_model_tier: str = "budget"
     additive_phase_allowed_changes: str = ""
     reductive_phase_allowed_changes: str = ""
     additive_prompt_template: str = ""

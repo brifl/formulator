@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import logging
 from pathlib import Path
 
 from nicegui import ui
@@ -41,6 +42,20 @@ from prompt_iteration_workbench.validation_status import describe_validation_sta
 
 FORMAT_OPTIONS = ["Markdown", "JSON", "Text", "Python"]
 PROJECTS_DIR = Path("projects")
+LOG_FILE = Path("logs/app.log")
+LOGGER = logging.getLogger("prompt_iteration_workbench.ui")
+
+
+def _configure_logging() -> None:
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if LOGGER.handlers:
+        return
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    LOGGER.addHandler(file_handler)
+    LOGGER.setLevel(logging.INFO)
+    LOGGER.propagate = False
 
 
 def apply_generated_templates(
@@ -170,10 +185,12 @@ def build_ui() -> None:
                 set_status("Idle")
                 ui.notify("Change summary generated.", type="positive")
             except LLMError as exc:
+                LOGGER.exception("Generate change summary failed with normalized LLM error.")
                 set_status("Error")
                 set_error(exc.message)
                 ui.notify(exc.message, type="negative")
             except Exception as exc:
+                LOGGER.exception("Generate change summary failed unexpectedly.")
                 set_status("Error")
                 set_error(f"Generate change summary failed: {exc}")
                 ui.notify("Generate change summary failed.", type="negative")
@@ -193,10 +210,12 @@ def build_ui() -> None:
                 set_error("None")
                 ui.notify("Current output restored from selected history entry.", type="positive")
             except IndexError:
+                LOGGER.exception("Restore failed because history index was out of range.")
                 set_status("Error")
                 set_error("Restore failed: selected history entry is out of range.")
                 ui.notify("Restore failed: invalid history selection.", type="negative")
             except Exception as exc:
+                LOGGER.exception("Restore failed unexpectedly.")
                 set_status("Error")
                 set_error(f"Restore failed: {exc}")
                 ui.notify("Restore failed.", type="negative")
@@ -515,10 +534,12 @@ def build_ui() -> None:
                 if notes.strip():
                     ui.notify(f"Prompt Architect notes: {notes[:120]}", type="info")
             except PromptArchitectError as exc:
+                LOGGER.exception("Generate prompts failed with PromptArchitectError.")
                 set_status("Error")
                 set_error(exc.message)
                 ui.notify(exc.message, type="negative")
             except Exception as exc:
+                LOGGER.exception("Generate prompts failed unexpectedly.")
                 set_status("Error")
                 set_error(f"Generate prompts failed: {exc}")
                 ui.notify("Generate prompts failed.", type="negative")
@@ -539,6 +560,7 @@ def build_ui() -> None:
                 refresh_validation_status()
                 notify_click("Run next step completed.")
             except Exception as exc:
+                LOGGER.exception("Run next step failed unexpectedly.")
                 set_status("Error")
                 set_error(f"Run next step failed: {exc}")
                 ui.notify("Run next step failed.", type="negative")
@@ -560,6 +582,7 @@ def build_ui() -> None:
                 set_error("None")
                 notify_click(f"Save project clicked. File: {saved_path}")
             except Exception as exc:
+                LOGGER.exception("Save failed unexpectedly.")
                 set_status("Error")
                 set_error(f"Save failed: {exc}")
                 ui.notify("Save failed.", type="negative")
@@ -580,6 +603,7 @@ def build_ui() -> None:
                 set_error("None")
                 notify_click(f"Load project clicked. File: {last_saved_path}")
             except Exception as exc:
+                LOGGER.exception("Load failed unexpectedly.")
                 set_status("Error")
                 set_error(f"Load failed: {exc}")
                 ui.notify("Load failed.", type="negative")
@@ -642,6 +666,7 @@ def build_ui() -> None:
                     set_status("Idle")
                     notify_click(f"Run iterations completed ({result.steps_completed} phase steps).")
             except Exception as exc:
+                LOGGER.exception("Run iterations failed unexpectedly.")
                 set_status("Error")
                 set_error(f"Run iterations failed: {exc}")
                 ui.notify("Run iterations failed.", type="negative")
@@ -674,6 +699,7 @@ def build_ui() -> None:
 def main() -> None:
     host = "127.0.0.1"
     port = 8080
+    _configure_logging()
     print(f"Starting Prompt Iteration Workbench at http://{host}:{port}")
     build_ui()
     ui.run(host=host, port=port, title="Prompt Iteration Workbench", show=False, reload=False)

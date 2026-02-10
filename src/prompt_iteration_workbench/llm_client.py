@@ -149,6 +149,7 @@ class LLMClient:
             messages.append({"role": "system", "content": system_text})
         messages.append({"role": "user", "content": user_text})
 
+        include_reasoning_effort = reasoning_effort is not None
         for attempt in range(self.max_retries + 1):
             try:
                 token_field = "max_completion_tokens"
@@ -162,7 +163,7 @@ class LLMClient:
                     }
                     if include_web_search_options:
                         request_base["web_search_options"] = {}
-                    if reasoning_effort is not None:
+                    if include_reasoning_effort and reasoning_effort is not None:
                         request_base["reasoning_effort"] = reasoning_effort
                     if include_temperature:
                         request_base["temperature"] = temperature
@@ -203,6 +204,16 @@ class LLMClient:
                     raise LLMError("Unable to prepare a compatible OpenAI request.", "invalid_request")
 
                 text = completion.choices[0].message.content or ""
+                if not text.strip() and include_reasoning_effort and reasoning_effort is not None:
+                    # Some models can consume the token budget with reasoning and emit empty text.
+                    # Retry once without reasoning_effort to recover a usable response payload.
+                    LOGGER.info(
+                        "llm_request retry_without_reasoning_effort tier=%s model=%s",
+                        tier,
+                        resolved_model,
+                    )
+                    include_reasoning_effort = False
+                    continue
                 request_id_raw = getattr(completion, "id", None)
                 request_id = str(request_id_raw) if request_id_raw is not None else None
                 usage = getattr(completion, "usage", None)
